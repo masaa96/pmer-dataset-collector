@@ -102,6 +102,8 @@ Start simple, add complexity only when needed:
 - **Media**: YouTube embeds (no storage needed)
 - **Domain/SSL**: Route 53 + Certificate Manager
 
+---
+
 ## Authentication Strategy
 
 ### Recommendation: **Simple Email-Based Authentication (No Password)**
