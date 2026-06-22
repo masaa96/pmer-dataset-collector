@@ -10,7 +10,9 @@ from services.data_service import (
     get_composer_compositions,
     get_all_emotions,
     add_new_composer,
-    add_composition_to_composer
+    add_composition_to_composer,
+    add_emotions_to_composition,
+    label_unlabeled_composition
 )
 
 
@@ -22,6 +24,13 @@ class AddCompositionRequest(BaseModel):
     composer_name: str
     composition_name: str
     youtube_url: Optional[str] = None
+
+
+class SubmitLabelsRequest(BaseModel):
+    composer_name: str
+    composition_name: str
+    emotions: List[str]
+    is_labeled: bool  # True if composition already has labels, False if unlabeled
 
 router = APIRouter(prefix="/api/data", tags=["Data"])
 
@@ -110,6 +119,36 @@ async def add_composition(request: AddCompositionRequest) -> Dict:
             request.composition_name.strip(),
             request.youtube_url.strip() if request.youtube_url else None
         )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/compositions/submit-labels")
+async def submit_labels(request: SubmitLabelsRequest) -> Dict:
+    """
+    Submit emotion labels for a composition.
+    - If is_labeled=True: Adds new emotions to an already labeled composition
+    - If is_labeled=False: Labels an unlabeled composition (moves from unlabeled to labeled)
+    All changes go to new_composers.json, never modifying the original Excel file.
+    """
+    try:
+        if request.is_labeled:
+            # Adding emotions to an already labeled composition
+            result = add_emotions_to_composition(
+                request.composer_name.strip(),
+                request.composition_name.strip(),
+                [e.strip() for e in request.emotions]
+            )
+        else:
+            # Labeling an unlabeled composition
+            result = label_unlabeled_composition(
+                request.composer_name.strip(),
+                request.composition_name.strip(),
+                [e.strip() for e in request.emotions]
+            )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     app_name: str = "PMER Dataset Collector"
     debug: bool = True
     
+    # Dataset Collection
+    collection_target: int = 1200  # Target number of labeled compositions
+    
     # Security
     secret_key: str = "dev-secret-key-change-in-production"
     jwt_algorithm: str = "HS256"

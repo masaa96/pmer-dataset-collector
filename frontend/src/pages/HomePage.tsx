@@ -2,7 +2,7 @@
  * Home Page
  * Main dashboard with navigation to labeled/unlabeled compositions
  */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -16,9 +16,23 @@ import {
 } from '@mui/material';
 import LibraryMusicIcon from '@mui/icons-material/LibraryMusic';
 import QueueMusicIcon from '@mui/icons-material/QueueMusic';
+import { getComposersSummary } from '../api/data';
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
+  const [target, setTarget] = useState(1000);
+
+  useEffect(() => {
+    const fetchTarget = async () => {
+      try {
+        const summary = await getComposersSummary();
+        setTarget(summary.collection_target);
+      } catch (error) {
+        console.error('Failed to load target:', error);
+      }
+    };
+    fetchTarget();
+  }, []);
 
   return (
     <Container maxWidth="lg">
@@ -38,7 +52,7 @@ const HomePage: React.FC = () => {
           }}
         >
           <Typography variant="h5" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
-            Help Us Reach 1000 Compositions! 🎵
+            Help Me Reach {target} Compositions!
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ lineHeight: 1.8 }}>
             <strong>Priority:</strong> Label unlabeled compositions with emotions you feel while listening.

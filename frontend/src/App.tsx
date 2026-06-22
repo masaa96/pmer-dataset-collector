@@ -6,6 +6,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme, CssBaseline, Box } from '@mui/material';
 import { AuthProvider } from './context/AuthContext';
+import { ProgressProvider } from './context/ProgressContext';
 import LoginPage from './pages/LoginPage';
 import HomePage from './pages/HomePage';
 import LabeledComposersPage from './pages/LabeledComposersPage';
@@ -50,7 +51,8 @@ const App: React.FC = () => {
         }}
       >
         <AuthProvider>
-          <Router>
+          <ProgressProvider>
+            <Router>
             <Routes>
               <Route path="/" element={<LoginPage />} />
               <Route
@@ -126,6 +128,7 @@ const App: React.FC = () => {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Router>
+          </ProgressProvider>
         </AuthProvider>
       </Box>
     </ThemeProvider>

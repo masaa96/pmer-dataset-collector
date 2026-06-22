@@ -15,6 +15,7 @@ export interface ComposersSummary {
   total_compositions: number;
   labeled_count: number;
   unlabeled_count: number;
+  collection_target: number;
 }
 
 export interface Composition {
@@ -78,6 +79,24 @@ export const addComposition = async (
     composer_name: composerName,
     composition_name: compositionName,
     youtube_url: youtubeUrl || null,
+  });
+  return response.data;
+};
+
+/**
+ * Submit emotion labels for a composition
+ */
+export const submitLabels = async (
+  composerName: string,
+  compositionName: string,
+  emotions: string[],
+  isLabeled: boolean
+): Promise<{ success: boolean; message: string }> => {
+  const response = await api.post<{ success: boolean; message: string }>('/api/data/compositions/submit-labels', {
+    composer_name: composerName,
+    composition_name: compositionName,
+    emotions: emotions,
+    is_labeled: isLabeled,
   });
   return response.data;
 };
