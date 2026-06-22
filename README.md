@@ -1,44 +1,38 @@
-# pmer-dataset-collector
+# PMER Dataset Collector
 
-I want to create a web application that will be hosted on AWS for collecting data for my master thesis. This is structure:  
-### Login page: 
-- collect users info like username or email (do I need to store password or not, since it's open to everyone app character?), do I need auth?
-### Home page: 
-- It should at the top have a counter like a line up to 1000 to track a progress from already collected data (now I have 150 compositions collected out of 1000).
-- Progress bar at the top should always be visible, except on login page. Maybe there can be added tab bar below progress so user can easily go back to home, or have an option to go back to labeled-composers, unlabeled-composers.
-- Also it should have two big buttons on the screen "Labeled Compositions", "Unlabeled Compositions", where by clicking one of them we are entering a new page, both of new pages should have a same page structure.
+A web application for collecting emotional labeling data for classical music compositions as part of a master thesis research project.
 
-### Labeled compositions: 
-- On this page we will have buttons for every composer from the dataset, and beside button number of compositions labeled.
-- When clicked it goes to another page.
+## What It Does
 
-#### Labeled + composer page: 
-- This page have similar structure as previous - compositions are listed in a matrix view like a buttons, with number of emotions labeled to them. When clicked on one of them new page opens.
+This application allows users to:
+- Browse classical music compositions by composer
+- Listen to compositions via embedded YouTube videos
+- Label compositions with emotions (joy, sadness, anger, etc.)
+- Add new composers and compositions to expand the dataset
+- Track progress toward the goal of 1000 labeled compositions
 
-#### Labeled + composer + composition page: 
-- This page contains a youtube video embedded, so user can click play button like regular youtube. This is on the left side of the screen, and on the right side there will be labels of emotions already assign to this composition, which cannot be deleted (if it's button it cannot be clicked). And below there should be buttons for other emotions that are clickable, and if selected, that emotions should be assigned to this composition in the dataset. 
-- Also some "+" button should exist there if the emotion user is feeling while listening doesn't exist in the list of possible ones, and should be added in the future to that list (like all existing emotions from the dataset). 
-- If user add here some emotions, that doesn't change progress bar, since it measures how many unique compositions are labeled.
+The app distinguishes between **labeled** (compositions with at least one emotion assigned) and **unlabeled** compositions, making it easy for users to contribute new data.
 
-Same thing for unlabeled.
+## How to Start
 
-### Unlabeled compositions: 
-- On this page we will have buttons for every composer from the dataset that doesn't have assigned any emotion with it.
-- Here we need to have button "+" if user want to add new composer that doesn't exist in the list of composers. It is desirable, because we want more different data.
-- When clicked it goes to another page.
+### Prerequisites
+- Python 3.8+
+- Node.js 16+
 
-#### Unlabeled + composer page: 
-- This page have similar structure as previous - compositions are listed in a matrix view like a buttons, with number of emotions labeled to them. 
-- Here we also should have "+" button if some composer list doesn't have composition they want, so they can add new composition to already existing composer. When adding new composition, pop up should ask for composition name, opus, number, and the youtube link, so we can add it to the dataset fully.
-- When clicked on one of them new page opens.
+### Backend (FastAPI)
+```bash
+cd backend
+pip install -r requirements.txt
+python main.py
+```
+Backend runs on http://localhost:8000
 
-#### Unlabeled + composer + composition page: 
-- This page contains a youtube video embedded, so user can click play button like regular youtube. This is on the left side of the screen, and on the right side there should be buttons for all emotions that are clickable, and if selected, that emotions should be assigned to this composition in the dataset. 
-- Also some "+" button should exist there if the emotion user is feeling while listening doesn't exist in the list of possible ones, and should be added in the future to that list (like all existing emotions from the dataset). If user add here some emotions, that doesn't change progress bar, since it measures how many unique compositions are labeled.
-- When new composition is labeled, progress bar should be changed.  
+### Frontend (React + Vite)
+```bash
+cd frontend
+npm install
+node node_modules/vite/bin/vite.js
+```
+Frontend runs on http://localhost:5173
 
-When a composition is labeled (gets its first emotion):  
-- It automatically disappears from the "Unlabeled" list
-- It immediately appears in the "Labeled" list with the assigned emotion(s)
-- Progress bar updates to reflect the new count
-- This applies to both existing compositions and newly added ones
+Open http://localhost:5173 in your browser to use the application.
