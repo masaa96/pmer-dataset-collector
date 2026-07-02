@@ -4,6 +4,9 @@
  */
 import React, { useState, useEffect } from 'react';
 import { useLocation, useParams, useNavigate } from 'react-router-dom';
+import { useTheme as useMuiTheme } from '@mui/material/styles';
+import { useTheme } from '../context/ThemeContext';
+import { getColors } from '../config/colorConfig';
 import {
   Container,
   Box,
@@ -32,8 +35,10 @@ import { useProgress } from '../context/ProgressContext';
 
 const CompositionDetailPage: React.FC = () => {
   const { composerName } = useParams<{ composerName: string; compositionName: string }>();
-  const location = useLocation();
+  const { isDarkMode } = useTheme();
+  const colors = getColors(isDarkMode);
   const navigate = useNavigate();
+  const location = useLocation();
   const { triggerRefresh } = useProgress();
   
   // Get composition data from navigation state
@@ -191,8 +196,8 @@ const CompositionDetailPage: React.FC = () => {
         <Grid item xs={12} sm={12} md={6}>
           <Card
             sx={{
-              backgroundColor: 'rgba(255, 255, 255, 0.95)',
-              backdropFilter: 'blur(10px)',
+              backgroundColor: colors.backgroundSecondary,
+              backdropFilter: colors.backdropFilter,
               boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
               borderRadius: 3,
               p: 1.5,
@@ -251,8 +256,8 @@ const CompositionDetailPage: React.FC = () => {
         <Grid item xs={12} sm={12} md={6}>
           <Card
             sx={{
-              backgroundColor: 'rgba(255, 255, 255, 0.95)',
-              backdropFilter: 'blur(10px)',
+              backgroundColor: colors.backgroundSecondary,
+              backdropFilter: colors.backdropFilter,
               boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
               borderRadius: 3,
               p: 2,

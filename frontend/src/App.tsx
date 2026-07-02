@@ -4,9 +4,10 @@
  */
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider, createTheme, CssBaseline, Box } from '@mui/material';
+import { Box, useTheme } from '@mui/material';
 import { AuthProvider } from './context/AuthContext';
 import { ProgressProvider } from './context/ProgressContext';
+import { CustomThemeProvider } from './context/ThemeContext';
 import LoginPage from './pages/LoginPage';
 import HomePage from './pages/HomePage';
 import LabeledComposersPage from './pages/LabeledComposersPage';
@@ -17,42 +18,29 @@ import CompositionDetailPage from './pages/CompositionDetailPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 
-// Create Material-UI theme with custom background
-const theme = createTheme({
-  palette: {
-    mode: 'light',
-    primary: {
-      main: '#1976d2',
-    },
-    secondary: {
-      main: '#dc004e',
-    },
-    background: {
-      default: '#f5f7fa',
-    },
-  },
-});
+const AppContent: React.FC = () => {
+  const theme = useTheme();
 
-const App: React.FC = () => {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Box
-        sx={{
-          minHeight: '100vh',
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%)',
-          backgroundSize: '400% 400%',
-          animation: 'gradientShift 15s ease infinite',
-          '@keyframes gradientShift': {
-            '0%': { backgroundPosition: '0% 50%' },
-            '50%': { backgroundPosition: '100% 50%' },
-            '100%': { backgroundPosition: '0% 50%' },
-          },
-        }}
-      >
-        <AuthProvider>
-          <ProgressProvider>
-            <Router>
+    <Box
+      sx={{
+        minHeight: '100vh',
+        background: theme.palette.mode === 'dark'
+          ? 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 25%, #262626 50%, #1a1a1a 75%, #0f0f0f 100%)'
+          : 'linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%)',
+        backgroundSize: '400% 400%',
+        animation: 'gradientShift 15s ease infinite',
+        '@keyframes gradientShift': {
+          '0%': { backgroundPosition: '0% 50%' },
+          '50%': { backgroundPosition: '100% 50%' },
+          '100%': { backgroundPosition: '0% 50%' },
+        },
+        transition: 'background 0.3s ease-in-out',
+      }}
+    >
+      <AuthProvider>
+        <ProgressProvider>
+          <Router>
             <Routes>
               <Route path="/" element={<LoginPage />} />
               <Route
@@ -128,10 +116,17 @@ const App: React.FC = () => {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Router>
-          </ProgressProvider>
-        </AuthProvider>
-      </Box>
-    </ThemeProvider>
+        </ProgressProvider>
+      </AuthProvider>
+    </Box>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <CustomThemeProvider>
+      <AppContent />
+    </CustomThemeProvider>
   );
 };
 

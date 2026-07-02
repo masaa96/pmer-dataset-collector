@@ -14,19 +14,26 @@ import {
   CardContent,
   CardActionArea,
 } from '@mui/material';
+import { useTheme as useMuiTheme } from '@mui/material/styles';
+import { useTheme } from '../context/ThemeContext';
+import { getColors } from '../config/colorConfig';
 import LibraryMusicIcon from '@mui/icons-material/LibraryMusic';
 import QueueMusicIcon from '@mui/icons-material/QueueMusic';
 import { getComposersSummary } from '../api/data';
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
-  const [target, setTarget] = useState(1000);
+  const { isDarkMode } = useTheme();
+  const colors = getColors(isDarkMode);
+  const [target, setTarget] = useState(1500);
 
   useEffect(() => {
     const fetchTarget = async () => {
       try {
         const summary = await getComposersSummary();
-        setTarget(summary.collection_target);
+        const newTarget = summary.collection_target;
+        
+        setTarget(newTarget);
       } catch (error) {
         console.error('Failed to load target:', error);
       }
@@ -44,10 +51,14 @@ const HomePage: React.FC = () => {
             padding: 3,
             borderRadius: 4,
             textAlign: 'center',
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            backdropFilter: 'blur(10px)',
-            boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.37)',
-            border: '1px solid rgba(255, 255, 255, 0.18)',
+            backgroundColor: colors.backgroundSecondary,
+            backdropFilter: colors.backdropFilter,
+            boxShadow: isDarkMode
+              ? '0 8px 32px 0 rgba(0, 0, 0, 0.5)'
+              : '0 8px 32px 0 rgba(31, 38, 135, 0.37)',
+            border: isDarkMode
+              ? '1px solid rgba(255, 255, 255, 0.1)'
+              : '1px solid rgba(255, 255, 255, 0.18)',
             mb: 4,
           }}
         >
@@ -70,8 +81,8 @@ const HomePage: React.FC = () => {
               elevation={16}
               sx={{
                 height: '100%',
-                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                backdropFilter: 'blur(10px)',
+                backgroundColor: colors.backgroundSecondary,
+                backdropFilter: colors.backdropFilter,
                 borderRadius: 4,
                 transition: 'transform 0.3s, box-shadow 0.3s',
                 '&:hover': {
@@ -102,8 +113,8 @@ const HomePage: React.FC = () => {
               elevation={16}
               sx={{
                 height: '100%',
-                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                backdropFilter: 'blur(10px)',
+                backgroundColor: colors.backgroundSecondary,
+                backdropFilter: colors.backdropFilter,
                 borderRadius: 4,
                 transition: 'transform 0.3s, box-shadow 0.3s',
                 '&:hover': {

@@ -1,21 +1,26 @@
-"""
-PMER Dataset Collector - FastAPI Backend
-Main application entry point.
-"""
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import settings
+from db.database import connect_db, close_db, is_db_connected
 from api.routes import auth, data
 
-# Create FastAPI application
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await connect_db()
+    yield
+    await close_db()
+
+
 app = FastAPI(
     title=settings.app_name,
     description="API for collecting emotional labeling data for classical music compositions",
     version="1.0.0",
-    debug=settings.debug
+    debug=settings.debug,
+    lifespan=lifespan,
 )
 
-# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.get_allowed_origins(),
@@ -24,7 +29,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
 app.include_router(auth.router)
 app.include_router(data.router)
 
@@ -42,7 +46,10 @@ async def root():
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "database": "connected" if is_db_connected() else "disconnected",
+    }
 
 
 if __name__ == "__main__":

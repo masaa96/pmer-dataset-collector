@@ -1,8 +1,5 @@
-"""
-Data API routes.
-Handles composition and composer data endpoints.
-"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 from services.data_service import (
@@ -12,8 +9,12 @@ from services.data_service import (
     add_new_composer,
     add_composition_to_composer,
     add_emotions_to_composition,
-    label_unlabeled_composition
+    label_unlabeled_composition,
 )
+from services.auth import verify_token, get_user_by_email
+
+router = APIRouter(prefix="/api/data", tags=["Data"])
+security = HTTPBearer()
 
 
 class AddComposerRequest(BaseModel):
@@ -30,35 +31,30 @@ class SubmitLabelsRequest(BaseModel):
     composer_name: str
     composition_name: str
     emotions: List[str]
-    is_labeled: bool  # True if composition already has labels, False if unlabeled
+    is_labeled: bool
 
-router = APIRouter(prefix="/api/data", tags=["Data"])
+
+async def get_email(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+    email = verify_token(credentials.credentials)
+    if not email:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return email
 
 
 @router.get("/composers/summary")
 async def composers_summary() -> Dict:
-    """
-    Get summary of all composers grouped by labeled/unlabeled.
-    Includes composition counts for each composer.
-    """
     try:
-        return get_composers_summary()
+        return await get_composers_summary()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/composers/{composer_name}/compositions")
 async def composer_compositions(composer_name: str) -> List[Dict]:
-    """
-    Get all labeled compositions for a specific composer with their emotions.
-    """
     try:
-        compositions = get_composer_compositions(composer_name, labeled=True)
+        compositions = await get_composer_compositions(composer_name, labeled=True)
         if not compositions:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No labeled compositions found for composer: {composer_name}"
-            )
+            raise HTTPException(status_code=404, detail=f"No labeled compositions found for: {composer_name}")
         return compositions
     except HTTPException:
         raise
@@ -68,39 +64,25 @@ async def composer_compositions(composer_name: str) -> List[Dict]:
 
 @router.get("/composers/{composer_name}/unlabeled-compositions")
 async def composer_unlabeled_compositions(composer_name: str) -> List[Dict]:
-    """
-    Get all unlabeled compositions for a specific composer.
-    Returns empty list if composer has no compositions yet (valid for new composers).
-    """
     try:
-        compositions = get_composer_compositions(composer_name, labeled=False)
-        # For unlabeled composers, empty list is valid (new composer with no compositions yet)
-        return compositions
-    except HTTPException:
-        raise
+        return await get_composer_compositions(composer_name, labeled=False)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/emotions")
 async def all_emotions() -> Dict:
-    """Get list of all unique emotions in the dataset."""
     try:
-        emotions = get_all_emotions()
+        emotions = await get_all_emotions()
         return {"emotions": emotions, "count": len(emotions)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/composers/add")
-async def add_composer(request: AddComposerRequest) -> Dict:
-    """
-    Add a new composer to the unlabeled composers list.
-    The composer is stored in a separate JSON file, not in the Excel file.
-    """
+async def add_composer(request: AddComposerRequest, email: str = Depends(get_email)) -> Dict:
     try:
-        result = add_new_composer(request.composer_name.strip())
-        return result
+        return await add_new_composer(request.composer_name.strip())
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -108,18 +90,9 @@ async def add_composer(request: AddComposerRequest) -> Dict:
 
 
 @router.post("/compositions/add")
-async def add_composition(request: AddCompositionRequest) -> Dict:
-    """
-    Add a new composition to a composer in the new_composers.json file.
-    Optionally includes a YouTube URL.
-    """
+async def add_composition(request: AddCompositionRequest, email: str = Depends(get_email)) -> Dict:
     try:
-        result = add_composition_to_composer(
-            request.composer_name.strip(),
-            request.composition_name.strip(),
-            request.youtube_url.strip() if request.youtube_url else None
-        )
-        return result
+        return await add_composition_to_composer(request.composer_name.strip(), request.composition_name.strip(), request.youtube_url.strip() if request.youtube_url else None)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -127,29 +100,12 @@ async def add_composition(request: AddCompositionRequest) -> Dict:
 
 
 @router.post("/compositions/submit-labels")
-async def submit_labels(request: SubmitLabelsRequest) -> Dict:
-    """
-    Submit emotion labels for a composition.
-    - If is_labeled=True: Adds new emotions to an already labeled composition
-    - If is_labeled=False: Labels an unlabeled composition (moves from unlabeled to labeled)
-    All changes go to new_composers.json, never modifying the original Excel file.
-    """
+async def submit_labels(request: SubmitLabelsRequest, email: str = Depends(get_email)) -> Dict:
     try:
         if request.is_labeled:
-            # Adding emotions to an already labeled composition
-            result = add_emotions_to_composition(
-                request.composer_name.strip(),
-                request.composition_name.strip(),
-                [e.strip() for e in request.emotions]
-            )
+            return await add_emotions_to_composition(request.composer_name.strip(), request.composition_name.strip(), [e.strip() for e in request.emotions], email)
         else:
-            # Labeling an unlabeled composition
-            result = label_unlabeled_composition(
-                request.composer_name.strip(),
-                request.composition_name.strip(),
-                [e.strip() for e in request.emotions]
-            )
-        return result
+            return await label_unlabeled_composition(request.composer_name.strip(), request.composition_name.strip(), [e.strip() for e in request.emotions], email)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

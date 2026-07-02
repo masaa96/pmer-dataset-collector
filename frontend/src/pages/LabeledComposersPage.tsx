@@ -4,6 +4,9 @@
  */
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTheme as useMuiTheme } from '@mui/material/styles';
+import { useTheme } from '../context/ThemeContext';
+import { getColors } from '../config/colorConfig';
 import {
   Container,
   Box,
@@ -24,6 +27,8 @@ import { getComposersSummary, Composer } from '../api/data';
 import Navigation from '../components/Navigation';
 
 const LabeledComposersPage: React.FC = () => {
+  const { isDarkMode } = useTheme();
+  const colors = getColors(isDarkMode);
   const [composers, setComposers] = useState<Composer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -109,8 +114,8 @@ const LabeledComposersPage: React.FC = () => {
           sx={{
             mb: 4,
             p: 2,
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            backdropFilter: 'blur(10px)',
+            backgroundColor: colors.backgroundSecondary,
+            backdropFilter: colors.backdropFilter,
             borderRadius: 3,
           }}
         >
@@ -151,10 +156,12 @@ const LabeledComposersPage: React.FC = () => {
               component="h2"
               gutterBottom
               sx={{
-                color: 'white',
+                color: isDarkMode ? '#ffeb3b' : '#1a1a1a',
                 fontWeight: 'bold',
                 mb: 2,
-                textShadow: '2px 2px 4px rgba(0,0,0,0.3)',
+                textShadow: isDarkMode
+                  ? '2px 2px 4px rgba(0,0,0,0.8), 0 0 10px rgba(0,0,0,0.6)'
+                  : '2px 2px 4px rgba(255,255,255,0.5)',
               }}
             >
               {letter}
@@ -166,8 +173,8 @@ const LabeledComposersPage: React.FC = () => {
                   <Card
                     elevation={8}
                     sx={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                      backdropFilter: 'blur(10px)',
+                      backgroundColor: colors.backgroundSecondary,
+                      backdropFilter: colors.backdropFilter,
                       borderRadius: 3,
                       transition: 'transform 0.2s, box-shadow 0.2s',
                       '&:hover': {
