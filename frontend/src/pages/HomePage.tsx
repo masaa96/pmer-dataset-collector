@@ -14,7 +14,6 @@ import {
   CardContent,
   CardActionArea,
 } from '@mui/material';
-import { useTheme as useMuiTheme } from '@mui/material/styles';
 import { useTheme } from '../context/ThemeContext';
 import { getColors } from '../config/colorConfig';
 import LibraryMusicIcon from '@mui/icons-material/LibraryMusic';

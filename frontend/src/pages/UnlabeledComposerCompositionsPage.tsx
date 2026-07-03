@@ -4,7 +4,6 @@
  */
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useTheme as useMuiTheme } from '@mui/material/styles';
 import { useTheme } from '../context/ThemeContext';
 import { getColors } from '../config/colorConfig';
 import {
@@ -127,7 +126,7 @@ const UnlabeledComposerCompositionsPage: React.FC = () => {
 
     try {
       // Call API to add composition
-      await addComposition(composerName, trimmedName, trimmedUrl || undefined);
+      await addComposition(composerName!, trimmedName, trimmedUrl || undefined);
       
       setSnackbarMessage(`Successfully added composition: ${trimmedName}`);
       setSnackbarOpen(true);
@@ -165,13 +164,6 @@ const UnlabeledComposerCompositionsPage: React.FC = () => {
   const isValidYouTubeUrl = (url: string): boolean => {
     const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/)|youtu\.be\/)[\w-]+/;
     return youtubeRegex.test(url);
-  };
-
-  // Helper function to extract YouTube video ID from URL
-  const extractYouTubeId = (url: string): string | null => {
-    const regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = url.match(regExp);
-    return (match && match[2].length === 11) ? match[2] : null;
   };
 
   const handleCloseSnackbar = () => {
