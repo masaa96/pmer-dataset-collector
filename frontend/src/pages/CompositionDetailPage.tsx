@@ -2,7 +2,7 @@
  * Composition Detail Page
  * Shows YouTube video (left) and emotion labels (right) for a specific composition
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
 import { useTheme } from '../context/ThemeContext';
@@ -28,10 +28,16 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import YouTubeEmbed from '../components/YouTubeEmbed';
 import Navigation from '../components/Navigation';
-import { Composition, getAllEmotions, submitLabels } from '../api/data';
+import { Composition, getAllEmotions, submitLabels, addYoutubeLink, uploadSheetPdf } from '../api/data';
+import { API_BASE_URL } from '../api/config';
 import { useProgress } from '../context/ProgressContext';
+import { useAuth } from '../context/AuthContext';
+
+const MAX_SHEET_PDF_SIZE_BYTES = 16 * 1024 * 1024; // 16 MB
 
 const CompositionDetailPage: React.FC = () => {
   const { composerName } = useParams<{ composerName: string; compositionName: string }>();
@@ -40,6 +46,8 @@ const CompositionDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { triggerRefresh } = useProgress();
+  const { user } = useAuth();
+  const isAdmin = user?.is_admin ?? false;
   
   // Get composition data from navigation state
   const composition = location.state?.composition as Composition | undefined;
@@ -57,6 +65,14 @@ const CompositionDetailPage: React.FC = () => {
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [currentYoutubeUrl, setCurrentYoutubeUrl] = useState(composition?.youtube_url || '');
+  const [openYoutubeDialog, setOpenYoutubeDialog] = useState(false);
+  const [youtubeUrlInput, setYoutubeUrlInput] = useState('');
+  const [isAddingYoutubeLink, setIsAddingYoutubeLink] = useState(false);
+  const [currentSheetPdfId, setCurrentSheetPdfId] = useState(composition?.sheet_pdf_id || null);
+  const [currentSheetPdfFilename, setCurrentSheetPdfFilename] = useState(composition?.sheet_pdf_filename || null);
+  const [isUploadingSheetPdf, setIsUploadingSheetPdf] = useState(false);
+  const sheetPdfInputRef = useRef<HTMLInputElement>(null);
 
   // Original emotions from the composition (cannot be removed)
   const originalEmotions = composition?.emotions || [];
@@ -141,6 +157,104 @@ const CompositionDetailPage: React.FC = () => {
     }
   };
 
+  // Helper function to validate YouTube URLs
+  const isValidYouTubeUrl = (url: string): boolean => {
+    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/)|youtu\.be\/)[\w-]+/;
+    return youtubeRegex.test(url);
+  };
+
+  // Handle opening the "Add YouTube Link" dialog (admin only)
+  const handleOpenYoutubeDialog = () => {
+    setYoutubeUrlInput('');
+    setOpenYoutubeDialog(true);
+  };
+
+  const handleCloseYoutubeDialog = () => {
+    setOpenYoutubeDialog(false);
+    setYoutubeUrlInput('');
+  };
+
+  // Handle submitting the new YouTube link (admin only, saved to MongoDB)
+  const handleAddYoutubeLink = async () => {
+    const trimmedUrl = youtubeUrlInput.trim();
+
+    if (!trimmedUrl || !isValidYouTubeUrl(trimmedUrl)) {
+      setSnackbarMessage('Please enter a valid YouTube URL (e.g., https://www.youtube.com/watch?v=VIDEO_ID)');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+      return;
+    }
+
+    if (!composerName || !composition) {
+      return;
+    }
+
+    setIsAddingYoutubeLink(true);
+
+    try {
+      const result = await addYoutubeLink(composerName, composition.name, trimmedUrl);
+      setCurrentYoutubeUrl(result.youtube_url);
+      setSnackbarMessage(result.message || 'YouTube link added successfully!');
+      setSnackbarSeverity('success');
+      setSnackbarOpen(true);
+      handleCloseYoutubeDialog();
+    } catch (error: any) {
+      setSnackbarMessage(error.response?.data?.detail || 'Failed to add YouTube link');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+    } finally {
+      setIsAddingYoutubeLink(false);
+    }
+  };
+
+  // Open the hidden file picker for the "Upload PDF" button
+  const handleUploadSheetPdfClick = () => {
+    sheetPdfInputRef.current?.click();
+  };
+
+  // Handle the selected sheet music PDF file, validate it client-side, and
+  // upload it (stored via GridFS on the backend, linked to this composition)
+  const handleSheetPdfFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file again later
+
+    if (!file || !composerName || !composition) {
+      return;
+    }
+
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      setSnackbarMessage('Please select a PDF file');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+      return;
+    }
+
+    if (file.size > MAX_SHEET_PDF_SIZE_BYTES) {
+      setSnackbarMessage('PDF file is too large. Maximum allowed size is 16 MB');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+      return;
+    }
+
+    setIsUploadingSheetPdf(true);
+
+    try {
+      const result = await uploadSheetPdf(composerName, composition.name, file);
+      setCurrentSheetPdfId(result.sheet_pdf_id);
+      setCurrentSheetPdfFilename(result.sheet_pdf_filename);
+      setSnackbarMessage(result.message || 'Sheet music PDF uploaded successfully!');
+      setSnackbarSeverity('success');
+      setSnackbarOpen(true);
+    } catch (error: any) {
+      setSnackbarMessage(error.response?.data?.detail || 'Failed to upload sheet music PDF');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+    } finally {
+      setIsUploadingSheetPdf(false);
+    }
+  };
+
   // Get all current emotions (original + selected)
   const allCurrentEmotions = [...originalEmotions, ...selectedEmotions];
 
@@ -213,9 +327,9 @@ const CompositionDetailPage: React.FC = () => {
             </Typography>
             
             <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-              {composition.youtube_url ? (
+              {currentYoutubeUrl ? (
                 <YouTubeEmbed 
-                  videoUrl={composition.youtube_url} 
+                  videoUrl={currentYoutubeUrl} 
                   height="100%"
                 />
               ) : (
@@ -239,13 +353,24 @@ const CompositionDetailPage: React.FC = () => {
                   >
                     No YouTube link available for this composition
                   </Typography>
-                  <Typography 
-                    variant="body2" 
-                    color="text.secondary"
-                    sx={{ mt: 1, textAlign: 'center', px: 3 }}
-                  >
-                    You can add a YouTube URL when editing this composition
-                  </Typography>
+                  {isAdmin && (
+                    <Button
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      onClick={handleOpenYoutubeDialog}
+                      sx={{
+                        mt: 2,
+                        fontWeight: 600,
+                        textTransform: 'none',
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        '&:hover': {
+                          background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
+                        },
+                      }}
+                    >
+                      Add YouTube Link
+                    </Button>
+                  )}
                 </Paper>
               )}
             </Box>
@@ -408,6 +533,84 @@ const CompositionDetailPage: React.FC = () => {
         </Grid>
       </Grid>
 
+      {/* Sheet Music PDF Section */}
+      <Card
+        sx={{
+          backgroundColor: colors.backgroundSecondary,
+          backdropFilter: colors.backdropFilter,
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+          borderRadius: 3,
+          p: 2.5,
+          mb: 6,
+          display: 'flex',
+          flexDirection: { xs: 'column', sm: 'row' },
+          alignItems: { xs: 'flex-start', sm: 'center' },
+          justifyContent: 'space-between',
+          gap: 2,
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <PictureAsPdfIcon sx={{ fontSize: 36, color: currentSheetPdfId ? '#e53935' : 'text.secondary' }} />
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Sheet Music
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {currentSheetPdfId
+                ? currentSheetPdfFilename || 'PDF available'
+                : 'No sheet music PDF uploaded yet (max 16 MB)'}
+            </Typography>
+          </Box>
+        </Box>
+
+        {currentSheetPdfId ? (
+          <Button
+            variant="contained"
+            component="a"
+            href={`${API_BASE_URL}/api/data/compositions/sheet-pdf/${currentSheetPdfId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            startIcon={<PictureAsPdfIcon />}
+            sx={{
+              fontWeight: 600,
+              textTransform: 'none',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              '&:hover': {
+                background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
+              },
+            }}
+          >
+            View / Download PDF
+          </Button>
+        ) : (
+          <>
+            <input
+              ref={sheetPdfInputRef}
+              type="file"
+              accept="application/pdf"
+              hidden
+              onChange={handleSheetPdfFileSelected}
+            />
+            <Button
+              variant="contained"
+              startIcon={<UploadFileIcon />}
+              onClick={handleUploadSheetPdfClick}
+              disabled={isUploadingSheetPdf}
+              sx={{
+                fontWeight: 600,
+                textTransform: 'none',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
+                },
+              }}
+            >
+              {isUploadingSheetPdf ? 'Uploading...' : 'Upload PDF'}
+            </Button>
+          </>
+        )}
+      </Card>
+
       {/* Add New Emotion Dialog */}
       <Dialog 
         open={openNewEmotionDialog} 
@@ -458,6 +661,46 @@ const CompositionDetailPage: React.FC = () => {
             }
           >
             Add Emotion
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add YouTube Link Dialog (admin only) */}
+      <Dialog
+        open={openYoutubeDialog}
+        onClose={handleCloseYoutubeDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Add YouTube Link</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Enter the YouTube URL for this composition's performance.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            label="YouTube URL"
+            value={youtubeUrlInput}
+            onChange={(e) => setYoutubeUrlInput(e.target.value)}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' && youtubeUrlInput.trim()) {
+                handleAddYoutubeLink();
+              }
+            }}
+            placeholder="e.g., https://www.youtube.com/watch?v=VIDEO_ID"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseYoutubeDialog} disabled={isAddingYoutubeLink}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleAddYoutubeLink}
+            variant="contained"
+            disabled={!youtubeUrlInput.trim() || isAddingYoutubeLink}
+          >
+            {isAddingYoutubeLink ? 'Adding...' : 'Add YouTube Link'}
           </Button>
         </DialogActions>
       </Dialog>

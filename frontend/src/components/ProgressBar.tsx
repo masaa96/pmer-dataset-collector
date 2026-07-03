@@ -93,7 +93,9 @@ const ProgressBar: React.FC = () => {
               backgroundColor: 'rgba(0, 0, 0, 0.1)',
               '& .MuiLinearProgress-bar': {
                 borderRadius: 5,
-                background: 'linear-gradient(90deg, #667eea 0%, #764ba2 50%, #f093fb 100%)',
+                background: isDarkMode
+                  ? 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)'
+                  : 'linear-gradient(90deg, #667eea 0%, #764ba2 50%, #f093fb 100%)',
               },
             }}
           />

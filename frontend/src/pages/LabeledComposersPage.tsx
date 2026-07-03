@@ -149,19 +149,19 @@ const LabeledComposersPage: React.FC = () => {
           <Box
             key={letter}
             ref={(el: HTMLDivElement | null) => (sectionRefs.current[letter] = el)}
-            sx={{ mb: 4, scrollMarginTop: '100px' }}
+            sx={{ mb: 4, scrollMarginTop: '160px' }}
           >
             <Typography
               variant="h4"
               component="h2"
               gutterBottom
               sx={{
-                color: isDarkMode ? '#ffeb3b' : '#1a1a1a',
+                color: '#ffffff',
                 fontWeight: 'bold',
                 mb: 2,
                 textShadow: isDarkMode
                   ? '2px 2px 4px rgba(0,0,0,0.8), 0 0 10px rgba(0,0,0,0.6)'
-                  : '2px 2px 4px rgba(255,255,255,0.5)',
+                  : '2px 2px 4px rgba(0,0,0,0.5)',
               }}
             >
               {letter}

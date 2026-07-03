@@ -33,10 +33,10 @@ export const CustomThemeProvider: React.FC<ThemeProviderProps> = ({ children }) 
     palette: {
       mode: isDarkMode ? 'dark' : 'light',
       primary: {
-        main: isDarkMode ? '#90caf9' : '#1976d2',
+        main: isDarkMode ? '#9575cd' : '#1976d2',
       },
       secondary: {
-        main: '#dc004e',
+        main: isDarkMode ? '#764ba2' : '#dc004e',
       },
       background: {
         default: isDarkMode ? '#0a0a0a' : '#f5f7fa',

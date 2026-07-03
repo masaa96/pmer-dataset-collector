@@ -15,7 +15,7 @@ import logging
 from typing import Optional
 
 from fastapi import HTTPException, status
-from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorGridFSBucket
 
 from config import settings
 
@@ -45,6 +45,13 @@ def get_db() -> AsyncIOMotorDatabase:
             detail="Database temporarily unavailable. Please try again in a moment.",
         )
     return _client[settings.mongodb_db_name]
+
+
+def get_gridfs_bucket() -> AsyncIOMotorGridFSBucket:
+    """Return a GridFS bucket for storing/retrieving large binary files
+    (e.g. sheet music PDFs) without hitting MongoDB's 16MB per-document
+    BSON limit. See https://www.mongodb.com/docs/manual/core/gridfs/"""
+    return AsyncIOMotorGridFSBucket(get_db(), bucket_name="sheet_pdfs")
 
 
 async def _create_indexes(db: AsyncIOMotorDatabase):

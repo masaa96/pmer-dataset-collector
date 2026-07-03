@@ -28,18 +28,13 @@ const TabBar: React.FC = () => {
     return 0; // Default to Home
   };
 
-  const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
-    switch (newValue) {
-      case 1:
-        navigate('/labeled-composers');
-        break;
-      case 2:
-        navigate('/unlabeled-composers');
-        break;
-      default:
-        break;
-    }
-  };
+  // MUI's Tabs `onChange` only fires when the clicked tab isn't already the
+  // selected one. Sub-routes like the composition detail page still match
+  // the currently "selected" tab, so we navigate exclusively from each
+  // Tab's `onClick` (which always fires) instead of `onChange`, to avoid
+  // both missing navigation on already-active tabs and double-navigating
+  // when actually switching tabs.
+  const handleTabClick = (path: string) => () => navigate(path);
 
   return (
     <Box
@@ -66,9 +61,6 @@ const TabBar: React.FC = () => {
       {/* Home Tab - Left */}
       <Tabs
         value={getCurrentTab() === 0 ? 0 : -1}
-        onChange={(_, value) => {
-          if (value === 0) navigate('/home');
-        }}
         sx={{
           minWidth: 'fit-content',
           '& .MuiTabs-indicator': {
@@ -82,6 +74,7 @@ const TabBar: React.FC = () => {
           icon={<HomeIcon />}
           iconPosition="start"
           value={0}
+          onClick={handleTabClick('/home')}
           sx={{
             textTransform: 'none',
             fontSize: '1rem',
@@ -97,7 +90,6 @@ const TabBar: React.FC = () => {
       {/* Labeled & Unlabeled - Center */}
       <Tabs
         value={getCurrentTab() === 0 ? -1 : getCurrentTab()}
-        onChange={handleTabChange}
         aria-label="main navigation"
         centered
         sx={{
@@ -113,6 +105,7 @@ const TabBar: React.FC = () => {
           icon={<LibraryMusicIcon />}
           iconPosition="start"
           value={1}
+          onClick={handleTabClick('/labeled-composers')}
           sx={{
             textTransform: 'none',
             fontSize: '1rem',
@@ -128,6 +121,7 @@ const TabBar: React.FC = () => {
           icon={<QueueMusicIcon />}
           iconPosition="start"
           value={2}
+          onClick={handleTabClick('/unlabeled-composers')}
           sx={{
             textTransform: 'none',
             fontSize: '1rem',

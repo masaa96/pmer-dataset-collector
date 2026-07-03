@@ -29,6 +29,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_no_cache_headers(request, call_next):
+    """Ensure API responses are always fetched live and never cached by the
+    browser or an intermediary proxy, so newly added/updated MongoDB
+    documents are reflected immediately on refresh."""
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
 app.include_router(auth.router)
 app.include_router(data.router)
 

@@ -35,11 +35,18 @@ async def get_user_by_email(email: str) -> Optional[dict]:
 
 
 def _fmt_user(doc: dict) -> dict:
-    """Format user document for API response, converting ObjectId to string."""
+    """Format user document for API response, converting ObjectId to string.
+
+    Only a computed `is_admin` boolean is exposed here - the actual admin
+    email list (settings.get_admin_emails()) never leaves the backend, so
+    it can't be read out of the frontend bundle or API responses.
+    """
     if not doc:
         return None
+    email = doc.get("email")
     return {
-        "email": doc.get("email"),
+        "email": email,
         "name": doc.get("name"),
         "created_at": doc.get("created_at"),
+        "is_admin": bool(email) and email.strip().lower() in settings.get_admin_emails(),
     }

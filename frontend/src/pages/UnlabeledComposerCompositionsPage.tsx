@@ -23,10 +23,11 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  Autocomplete,
   Snackbar,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
-import { getComposerUnlabeledCompositions, addComposition, Composition } from '../api/data';
+import { getComposerUnlabeledCompositions, getAllComposerCompositions, addComposition, Composition } from '../api/data';
 import Navigation from '../components/Navigation';
 
 const UnlabeledComposerCompositionsPage: React.FC = () => {
@@ -35,6 +36,7 @@ const UnlabeledComposerCompositionsPage: React.FC = () => {
   const colors = getColors(isDarkMode);
   const navigate = useNavigate();
   const [compositions, setCompositions] = useState<Composition[]>([]);
+  const [allComposerCompositions, setAllComposerCompositions] = useState<Composition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -59,9 +61,33 @@ const UnlabeledComposerCompositionsPage: React.FC = () => {
     }
   }, [composerName]);
 
+  // Fetch every composition (labeled + unlabeled) for this composer, used to
+  // populate the "Add Composition" dropdown and detect existing matches.
+  const fetchAllComposerCompositions = useCallback(async () => {
+    if (!composerName) return;
+
+    try {
+      const data = await getAllComposerCompositions(composerName);
+      setAllComposerCompositions(data);
+    } catch (err) {
+      console.error('Failed to load all compositions for composer:', err);
+    }
+  }, [composerName]);
+
   useEffect(() => {
     fetchCompositions();
-  }, [fetchCompositions]);
+    fetchAllComposerCompositions();
+  }, [fetchCompositions, fetchAllComposerCompositions]);
+
+  // If the entered/selected composition name matches an existing one for
+  // this composer (labeled or unlabeled), surface it instead of letting the
+  // user create a duplicate.
+  const trimmedNewCompositionName = newCompositionName.trim();
+  const matchedComposition = trimmedNewCompositionName
+    ? allComposerCompositions.find(
+        (c) => c.name.trim().toLowerCase() === trimmedNewCompositionName.toLowerCase()
+      ) || null
+    : null;
 
   // Handle add composition dialog
   const handleOpenDialog = () => {
@@ -86,6 +112,12 @@ const UnlabeledComposerCompositionsPage: React.FC = () => {
       return;
     }
 
+    // Existing compositions are resolved via the inline alert/navigation
+    // buttons instead of being (re)created here.
+    if (matchedComposition) {
+      return;
+    }
+
     // Validate YouTube URL if provided
     if (trimmedUrl && !isValidYouTubeUrl(trimmedUrl)) {
       setSnackbarMessage('Please enter a valid YouTube URL (e.g., https://www.youtube.com/watch?v=VIDEO_ID or https://youtu.be/VIDEO_ID)');
@@ -101,13 +133,32 @@ const UnlabeledComposerCompositionsPage: React.FC = () => {
       setSnackbarOpen(true);
       handleCloseDialog();
       
-      // Refresh the compositions list
+      // Refresh the compositions lists
       fetchCompositions();
+      fetchAllComposerCompositions();
     } catch (err: any) {
       console.error('Failed to add composition:', err);
       setSnackbarMessage(err.response?.data?.detail || 'Failed to add composition. Please try again.');
       setSnackbarOpen(true);
     }
+  };
+
+  // Navigate to the already-labeled version of a matched composition
+  const handleGoToLabeled = () => {
+    if (!matchedComposition || !composerName) return;
+    handleCloseDialog();
+    navigate(`/labeled-composers/${encodeURIComponent(composerName)}/composition/${encodeURIComponent(matchedComposition.name)}`, {
+      state: { composition: matchedComposition },
+    });
+  };
+
+  // Navigate to the already-unlabeled version of a matched composition
+  const handleGoToUnlabeled = () => {
+    if (!matchedComposition || !composerName) return;
+    handleCloseDialog();
+    navigate(`/unlabeled-composers/${encodeURIComponent(composerName)}/composition/${encodeURIComponent(matchedComposition.name)}`, {
+      state: { composition: matchedComposition },
+    });
   };
 
   // Helper function to validate YouTube URLs
@@ -278,53 +329,92 @@ const UnlabeledComposerCompositionsPage: React.FC = () => {
         <DialogTitle sx={{ fontWeight: 'bold' }}>Add New Composition</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Add a new composition for <strong>{composerName}</strong>
+            Pick an existing composition for <strong>{composerName}</strong> to jump to it, or type a new name to add one.
           </Typography>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Composition Name"
-            fullWidth
-            variant="outlined"
-            value={newCompositionName}
-            onChange={(e) => setNewCompositionName(e.target.value)}
-            placeholder="e.g., Piano Sonata No. 16 in C major, K. 545"
-            helperText="Enter the full name of the composition"
+          <Autocomplete
+            freeSolo
+            options={allComposerCompositions.map((c) => c.name)}
+            inputValue={newCompositionName}
+            onInputChange={(_, newInputValue) => setNewCompositionName(newInputValue)}
+            onChange={(_, newValue) => setNewCompositionName(newValue || '')}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                autoFocus
+                margin="dense"
+                label="Composition Name"
+                fullWidth
+                variant="outlined"
+                placeholder="e.g., Piano Sonata No. 16 in C major, K. 545"
+                helperText="Select an existing composition or enter a new full name"
+              />
+            )}
             sx={{ mt: 2 }}
           />
-          <TextField
-            margin="dense"
-            label="YouTube URL (Optional)"
-            fullWidth
-            variant="outlined"
-            value={youtubeUrl}
-            onChange={(e) => setYoutubeUrl(e.target.value)}
-            onKeyPress={(e) => {
-              if (e.key === 'Enter') {
-                handleAddComposition();
-              }
-            }}
-            placeholder="e.g., https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-            helperText="Enter a YouTube URL to embed the video for this composition"
-            sx={{ mt: 2 }}
-          />
+
+          {matchedComposition ? (
+            matchedComposition.labeled ? (
+              <Alert
+                severity="error"
+                sx={{ mt: 2 }}
+                action={
+                  <Button color="inherit" size="small" onClick={handleGoToLabeled}>
+                    Take me to labeled
+                  </Button>
+                }
+              >
+                This composition is already labeled.
+              </Alert>
+            ) : (
+              <Alert
+                severity="info"
+                sx={{ mt: 2 }}
+                action={
+                  <Button color="inherit" size="small" onClick={handleGoToUnlabeled}>
+                    Take me to unlabeled
+                  </Button>
+                }
+              >
+                This composition already exists and is unlabeled.
+              </Alert>
+            )
+          ) : (
+            <TextField
+              margin="dense"
+              label="YouTube URL (Optional)"
+              fullWidth
+              variant="outlined"
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  handleAddComposition();
+                }
+              }}
+              placeholder="e.g., https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+              helperText="Enter a YouTube URL to embed the video for this composition"
+              sx={{ mt: 2 }}
+            />
+          )}
         </DialogContent>
         <DialogActions sx={{ p: 2.5 }}>
           <Button onClick={handleCloseDialog} color="inherit">
             Cancel
           </Button>
-          <Button 
-            onClick={handleAddComposition} 
-            variant="contained"
-            sx={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              '&:hover': {
-                background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
-              },
-            }}
-          >
-            Add Composition
-          </Button>
+          {!matchedComposition && (
+            <Button 
+              onClick={handleAddComposition} 
+              variant="contained"
+              sx={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
+                },
+              }}
+            >
+              Add Composition
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 

@@ -31,16 +31,19 @@ const Navigation: React.FC<NavigationProps> = ({ showBack = true }) => {
         onClick={() => navigate(-1)}
         variant="text"
         sx={{
-          backgroundColor: colors.backgroundSecondary,
-          color: isDarkMode ? colors.textPrimary : muiTheme.palette.primary.main,
+          background: isDarkMode ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : colors.backgroundSecondary,
+          color: isDarkMode ? 'white' : muiTheme.palette.primary.main,
+          fontWeight: isDarkMode ? 'bold' : undefined,
           backdropFilter: colors.backdropFilter,
-          boxShadow: colors.shadowMedium,
+          boxShadow: isDarkMode ? '0 4px 20px rgba(102, 126, 234, 0.4)' : colors.shadowMedium,
           borderRadius: colors.borderRadiusLarge,
           padding: '8px 16px',
           transition: 'transform 0.3s, box-shadow 0.3s',
           '&:hover': {
-            backgroundColor: colors.backgroundSecondary,
-            boxShadow: colors.shadowHeavy,
+            background: isDarkMode
+              ? 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)'
+              : colors.backgroundSecondary,
+            boxShadow: isDarkMode ? '0 6px 30px rgba(102, 126, 234, 0.6)' : colors.shadowHeavy,
           },
         }}
       >
