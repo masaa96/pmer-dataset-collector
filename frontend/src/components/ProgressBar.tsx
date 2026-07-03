@@ -2,9 +2,10 @@
  * Progress Bar Component
  * Shows collection progress (current/target) on all pages except login
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Box, LinearProgress, Typography, Paper, Dialog, DialogContent, DialogTitle, Button } from '@mui/material';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
+import { useLocation } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
 import { getColors } from '../config/colorConfig';
 import { getComposersSummary } from '../api/data';
@@ -13,11 +14,17 @@ import { useProgress } from '../context/ProgressContext';
 const ProgressBar: React.FC = () => {
   const { isDarkMode } = useTheme();
   const colors = getColors(isDarkMode);
+  const location = useLocation();
   const [labeledCount, setLabeledCount] = useState(0);
   const [target, setTarget] = useState(1000);
   const [loading, setLoading] = useState(true);
   const [showCelebration, setShowCelebration] = useState(false);
   const { refreshTrigger } = useProgress();
+  // Tracks whether the celebration has already been shown during this visit
+  // to the Home page, so dismissing it doesn't immediately reopen it if the
+  // progress data refreshes again while still on the page. Resets whenever
+  // ProgressBar remounts (i.e. every time the user navigates to Home).
+  const hasShownThisVisitRef = useRef(false);
 
   useEffect(() => {
     const fetchProgress = async () => {
@@ -29,13 +36,11 @@ const ProgressBar: React.FC = () => {
         setLabeledCount(newLabeledCount);
         setTarget(newTarget);
         
-        // Check if target is reached and celebration hasn't been shown yet
-        if (newLabeledCount >= newTarget) {
-          const celebrationShown = localStorage.getItem('celebration_shown');
-          if (!celebrationShown) {
-            setShowCelebration(true);
-            localStorage.setItem('celebration_shown', 'true');
-          }
+        // Show the celebration every time the goal is reached on the Home
+        // page (but only once per visit, not once ever).
+        if (newLabeledCount >= newTarget && location.pathname === '/home' && !hasShownThisVisitRef.current) {
+          setShowCelebration(true);
+          hasShownThisVisitRef.current = true;
         }
       } catch (error) {
         console.error('Failed to load progress:', error);
@@ -45,7 +50,7 @@ const ProgressBar: React.FC = () => {
     };
 
     fetchProgress();
-  }, [refreshTrigger]);
+  }, [refreshTrigger, location.pathname]);
 
   const progress = (labeledCount / target) * 100;
 
