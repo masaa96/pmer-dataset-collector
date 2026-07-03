@@ -4,10 +4,15 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Box, LinearProgress, Typography, Paper, Dialog, DialogContent, DialogTitle, Button } from '@mui/material';
+import { useTheme as useMuiTheme } from '@mui/material/styles';
+import { useTheme } from '../context/ThemeContext';
+import { getColors } from '../config/colorConfig';
 import { getComposersSummary } from '../api/data';
 import { useProgress } from '../context/ProgressContext';
 
 const ProgressBar: React.FC = () => {
+  const { isDarkMode } = useTheme();
+  const colors = getColors(isDarkMode);
   const [labeledCount, setLabeledCount] = useState(0);
   const [target, setTarget] = useState(1000);
   const [loading, setLoading] = useState(true);
@@ -57,13 +62,17 @@ const ProgressBar: React.FC = () => {
       <Paper
         elevation={8}
         sx={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 1000,
-          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-          backdropFilter: 'blur(10px)',
+          position: 'fixed',
+          top: 56,
+          left: 0,
+          right: 0,
+          zIndex: 99,
+          backgroundColor: colors.backgroundSecondary,
+          backdropFilter: colors.backdropFilter,
           borderRadius: 0,
-          borderBottom: '2px solid rgba(255, 255, 255, 0.3)',
+          borderBottom: isDarkMode
+            ? '2px solid rgba(255, 255, 255, 0.1)'
+            : '2px solid rgba(255, 255, 255, 0.3)',
         }}
       >
         <Box sx={{ px: 4, py: 2 }}>
@@ -84,7 +93,9 @@ const ProgressBar: React.FC = () => {
               backgroundColor: 'rgba(0, 0, 0, 0.1)',
               '& .MuiLinearProgress-bar': {
                 borderRadius: 5,
-                background: 'linear-gradient(90deg, #667eea 0%, #764ba2 50%, #f093fb 100%)',
+                background: isDarkMode
+                  ? 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)'
+                  : 'linear-gradient(90deg, #667eea 0%, #764ba2 50%, #f093fb 100%)',
               },
             }}
           />

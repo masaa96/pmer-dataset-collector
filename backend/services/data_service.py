@@ -1,490 +1,309 @@
-"""
-Data service for handling composition dataset.
-Reads and processes Excel file with composition data.
-"""
-import pandas as pd
-import json
 from typing import List, Dict, Optional
-from pathlib import Path
+from datetime import datetime
+import re
+from bson import ObjectId
+from bson.errors import InvalidId
+from db.database import get_db, get_gridfs_bucket
 from config import settings
 
-# Path to dataset
-DATA_FILE = Path(__file__).parent.parent.parent / "data" / "composition_emotions_dataset.xlsx"
-NEW_COMPOSERS_FILE = Path(__file__).parent.parent.parent / "data" / "new_composers.json"
+_YOUTUBE_URL_RE = re.compile(
+    r"^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/)|youtu\.be\/)[\w-]{11}"
+)
 
-# Cache for dataset
-_dataset_cache = None
-
-
-def load_dataset() -> pd.DataFrame:
-    """Load dataset from Excel file with caching."""
-    global _dataset_cache
-    if _dataset_cache is None:
-        _dataset_cache = pd.read_excel(DATA_FILE)
-    return _dataset_cache
+# MongoDB's hard per-document BSON size limit. GridFS itself has no such
+# limit (it chunks large files), but we still cap uploads here to keep sheet
+# music files reasonably sized for a web app.
+MAX_SHEET_PDF_SIZE_BYTES = 16 * 1024 * 1024  # 16 MB
 
 
-def get_composers_summary() -> Dict:
-    """
-    Get summary of all composers with composition counts.
-    Returns dict with labeled and unlabeled composers.
-    Merges data from Excel file and new composers JSON file.
-    """
-    df = load_dataset()
-    
-    # Separate labeled and unlabeled compositions from Excel
-    # Labeled = has at least Emotion 1
-    labeled_df = df[df['Emotion 1'].notna()]
-    unlabeled_df = df[df['Emotion 1'].isna()]
-    
-    # Group by composer and count compositions
-    labeled_counts = labeled_df.groupby('Composer Name').size().to_dict()
-    unlabeled_counts = unlabeled_df.groupby('Composer Name').size().to_dict()
-    
-    # Track additional labeled/unlabeled compositions from new_composers.json
-    additional_labeled_count = 0
-    additional_unlabeled_count = 0
-    
-    # Process new_composers.json to add/update labeled/unlabeled compositions
-    new_composers = load_new_composers()
-    for composer in new_composers:
-        composer_name = composer['name']
-        
-        # Get compositions from Excel for this composer to check for duplicates
-        composer_excel_df = df[df['Composer Name'] == composer_name]
-        excel_comp_names = set(composer_excel_df['Composition Name'].str.lower())
-        
-        labeled_count_new = 0
-        unlabeled_count_new = 0
-        moved_from_unlabeled = 0  # Compositions that were unlabeled in Excel but now labeled
-        
-        for comp in composer.get('compositions', []):
-            if isinstance(comp, dict):
-                comp_name = comp.get('name', '').lower()
-                emotions = comp.get('emotions', [])
-                has_emotions = emotions and len(emotions) > 0
-                
-                # Check if this composition exists in Excel
-                is_in_excel = comp_name in excel_comp_names
-                
-                if is_in_excel:
-                    # Check if it was unlabeled in Excel
-                    was_unlabeled = comp_name in set(
-                        composer_excel_df[composer_excel_df['Emotion 1'].isna()]['Composition Name'].str.lower()
-                    )
-                    was_labeled = comp_name in set(
-                        composer_excel_df[composer_excel_df['Emotion 1'].notna()]['Composition Name'].str.lower()
-                    )
-                    
-                    if was_unlabeled and has_emotions:
-                        # This composition is being moved from unlabeled to labeled
-                        moved_from_unlabeled += 1
-                    # If was_labeled and has_emotions: do nothing, it's just additional emotions for already labeled
-                else:
-                    # New composition not in Excel
-                    if has_emotions:
-                        labeled_count_new += 1
-                    else:
-                        unlabeled_count_new += 1
-            else:
-                # Old format: string (treat as unlabeled new composition)
-                unlabeled_count_new += 1
-        
-        # Update counts
-        if moved_from_unlabeled > 0:
-            # Move from unlabeled to labeled
-            unlabeled_counts[composer_name] = unlabeled_counts.get(composer_name, 0) - moved_from_unlabeled
-            labeled_counts[composer_name] = labeled_counts.get(composer_name, 0) + moved_from_unlabeled
-            additional_labeled_count += moved_from_unlabeled
-            additional_unlabeled_count -= moved_from_unlabeled
-        
-        if labeled_count_new > 0:
-            labeled_counts[composer_name] = labeled_counts.get(composer_name, 0) + labeled_count_new
-            additional_labeled_count += labeled_count_new
-            
-        if unlabeled_count_new > 0:
-            unlabeled_counts[composer_name] = unlabeled_counts.get(composer_name, 0) + unlabeled_count_new
-            additional_unlabeled_count += unlabeled_count_new
-    
-    labeled_composers = [
-        {"name": composer, "composition_count": count}
-        for composer, count in sorted(labeled_counts.items())
-        if count > 0  # Only include composers with labeled compositions
-    ]
-    
-    unlabeled_composers = [
-        {"name": composer, "composition_count": count}
-        for composer, count in sorted(unlabeled_counts.items())
-        if count > 0  # Only include composers with unlabeled compositions
-    ]
-    
+async def get_composers_summary() -> Dict:
+    db = get_db()
+    labeled = []
+    unlabeled_counts: Dict[str, int] = {}
+
+    # Group by composer AND labeled status separately, so a composer with a
+    # mix of labeled/unlabeled compositions shows up correctly (with the
+    # right counts) in both lists instead of being lumped entirely into
+    # whichever status happened to come first in the cursor.
+    async for doc in db.compositions.aggregate(
+        [
+            {"$group": {"_id": {"composer_name": "$composer_name", "labeled": "$labeled"}, "count": {"$sum": 1}}},
+        ]
+    ):
+        name = doc["_id"]["composer_name"]
+        if doc["_id"]["labeled"]:
+            labeled.append({"name": name, "composition_count": doc["count"]})
+        else:
+            unlabeled_counts[name] = doc["count"]
+
+    # Composers explicitly surfaced via the "Add New Composer" flow (brand
+    # new composers, or existing composers picked from the dropdown that
+    # currently have no unlabeled compositions) still show up with a 0
+    # count, so users can immediately start adding compositions for them.
+    async for composer in db.composers.find({"show_when_empty": True}, {"name": 1}):
+        unlabeled_counts.setdefault(composer["name"], 0)
+
+    labeled.sort(key=lambda c: c["name"])
+    unlabeled = [{"name": name, "composition_count": count} for name, count in sorted(unlabeled_counts.items())]
+
+    labeled_count = await db.compositions.count_documents({"labeled": True})
+    unlabeled_count = await db.compositions.count_documents({"labeled": False})
+    total = await db.compositions.count_documents({})
+
     return {
-        "labeled": labeled_composers,
-        "unlabeled": unlabeled_composers,
-        "total_compositions": len(df) + additional_labeled_count + additional_unlabeled_count,
-        "labeled_count": len(labeled_df) + additional_labeled_count,
-        "unlabeled_count": len(unlabeled_df) + additional_unlabeled_count,
-        "collection_target": settings.collection_target
+        "labeled": labeled,
+        "unlabeled": unlabeled,
+        "total_compositions": total,
+        "labeled_count": labeled_count,
+        "unlabeled_count": unlabeled_count,
+        "collection_target": settings.collection_target,
     }
 
 
-def get_composer_compositions(composer_name: str, labeled: bool = True) -> List[Dict]:
-    """Get compositions for a specific composer.
-    
-    Args:
-        composer_name: Name of the composer
-        labeled: If True, return only labeled compositions. If False, return only unlabeled.
+async def get_composer_compositions(composer_name: str, labeled: bool = True) -> List[Dict]:
+    db = get_db()
+    docs = await db.compositions.find({"composer_name": composer_name, "labeled": labeled}).to_list(None)
+    return [_fmt_comp(doc) for doc in docs]
+
+
+async def get_all_composer_compositions(composer_name: str) -> List[Dict]:
+    """Return every composition for a composer, regardless of labeled status,
+    for use in the "Add Composition" dropdown so users can tell whether a
+    composition already exists (and if so, whether it's labeled)."""
+    db = get_db()
+    docs = await db.compositions.find({"composer_name": composer_name}).to_list(None)
+    return [_fmt_comp(doc) for doc in docs]
+
+
+async def get_all_emotions() -> List[str]:
     """
-    df = load_dataset()
-    composer_df = df[df['Composer Name'] == composer_name]
+    Retrieve all unique emotions from both compositions and user labels.
     
-    # Filter by labeled/unlabeled status
-    if labeled:
-        composer_df = composer_df[composer_df['Emotion 1'].notna()]
-    else:
-        composer_df = composer_df[composer_df['Emotion 1'].isna()]
+    This captures:
+    - Original emotions from pre-labeled compositions
+    - User-submitted emotions from the labels collection
     
-    compositions = []
-    compositions_map = {}  # Track compositions by name for merging
+    This ensures the list is dynamic and includes any new emotions added by users.
     
-    for _, row in composer_df.iterrows():
-        # Get all emotions for this composition
-        emotions = []
-        for i in range(1, 12):  # Emotion 1 through Emotion 11
-            emotion = row.get(f'Emotion {i}')
-            if pd.notna(emotion):
-                emotions.append(emotion)
-        
-        comp_name = row['Composition Name']
-        compositions_map[comp_name.lower()] = {
-            "name": comp_name,
-            "emotions": emotions,
-            "emotion_count": len(emotions),
-            "youtube_url": row.get('YouTube URL') if pd.notna(row.get('YouTube URL')) else None
+    Returns:
+        Sorted list of unique emotion strings
+    """
+    db = get_db()
+    
+    # Get emotions from original labeled compositions
+    composition_emotions = await db.compositions.distinct("emotions")
+    
+    # Get emotions from user-submitted labels
+    label_emotions = await db.labels.distinct("emotions")
+    
+    # Combine both, filter out None/empty, deduplicate, and sort
+    all_emotions = set()
+    
+    for emotion_list in [composition_emotions, label_emotions]:
+        for emotion in emotion_list:
+            if emotion and isinstance(emotion, str):
+                all_emotions.add(emotion.strip())
+    
+    return sorted(list(all_emotions))
+
+
+async def add_new_composer(composer_name: str) -> Dict:
+    db = get_db()
+    if await db.composers.find_one({"name": composer_name}):
+        raise ValueError(f"Composer '{composer_name}' already exists")
+    await db.composers.insert_one(
+        {
+            "name": composer_name,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+            # New composers should be immediately visible on the Unlabeled
+            # Composers page (with 0 compositions) even before any
+            # composition has been added for them.
+            "show_when_empty": True,
         }
-    
-    # Also check new_composers.json file and merge/add compositions
-    new_composers = load_new_composers()
-    for composer in new_composers:
-        if composer['name'].lower() == composer_name.lower():
-            for comp in composer.get('compositions', []):
-                # Handle both string format (old) and object format (new)
-                if isinstance(comp, str):
-                    # Old format: just a string (treat as unlabeled)
-                    if not labeled:
-                        comp_name_lower = comp.lower()
-                        if comp_name_lower not in compositions_map:
-                            compositions_map[comp_name_lower] = {
-                                "name": comp,
-                                "emotions": [],
-                                "emotion_count": 0
-                            }
-                else:
-                    # New format: object with name, youtube_url, emotions
-                    comp_name = comp.get('name', '')
-                    comp_name_lower = comp_name.lower()
-                    emotions = comp.get('emotions', [])
-                    has_emotions = len(emotions) > 0
-                    
-                    if comp_name_lower in compositions_map:
-                        # Merge emotions from both sources (for labeled compositions)
-                        if labeled:
-                            existing = compositions_map[comp_name_lower]
-                            all_emotions = existing['emotions'] + emotions
-                            # Remove duplicates while preserving order
-                            seen = set()
-                            merged_emotions = []
-                            for emotion in all_emotions:
-                                if emotion not in seen:
-                                    seen.add(emotion)
-                                    merged_emotions.append(emotion)
-                            
-                            existing['emotions'] = merged_emotions
-                            existing['emotion_count'] = len(merged_emotions)
-                            # Update YouTube URL if available in new_composers
-                            if comp.get('youtube_url'):
-                                existing['youtube_url'] = comp.get('youtube_url')
-                    else:
-                        # New composition only in new_composers.json
-                        # Only include if labeled status matches
-                        if (labeled and has_emotions) or (not labeled and not has_emotions):
-                            compositions_map[comp_name_lower] = {
-                                "name": comp_name,
-                                "youtube_url": comp.get('youtube_url'),
-                                "emotions": emotions,
-                                "emotion_count": len(emotions)
-                            }
-            break
-    
-    # Convert map to list
-    compositions = list(compositions_map.values())
-    
-    return compositions
+    )
+    return {"success": True, "message": f"Added composer '{composer_name}'"}
 
 
-def get_all_emotions() -> List[str]:
-    """Get list of all unique emotions in the dataset."""
-    df = load_dataset()
-    emotions = set()
-    
-    # Get emotions from Excel file
-    for i in range(1, 12):  # Emotion 1 through Emotion 11
-        col_emotions = df[f'Emotion {i}'].dropna().unique()
-        emotions.update(col_emotions)
-    
-    # Get emotions from new_composers.json
-    new_composers = load_new_composers()
-    for composer in new_composers:
-        for comp in composer.get('compositions', []):
-            if isinstance(comp, dict):
-                comp_emotions = comp.get('emotions', [])
-                emotions.update(comp_emotions)
-    
-    return sorted(list(emotions))
+async def get_all_composer_names() -> List[str]:
+    db = get_db()
+    names = await db.composers.distinct("name")
+    return sorted(names)
 
 
-def load_new_composers() -> List[Dict]:
-    """Load new composers from JSON file."""
-    if not NEW_COMPOSERS_FILE.exists():
-        return []
-    
+async def add_existing_composer_to_unlabeled(composer_name: str) -> Dict:
+    """Ensure an already-registered composer (e.g. one whose compositions are
+    all labeled) is surfaced on the Unlabeled Composers page with a 0 count,
+    so users can start adding unlabeled compositions for them."""
+    db = get_db()
+    composer = await db.composers.find_one({"name": composer_name})
+    if not composer:
+        raise ValueError(f"Composer '{composer_name}' not found")
+    await db.composers.update_one(
+        {"_id": composer["_id"]},
+        {"$set": {"show_when_empty": True, "updated_at": datetime.utcnow()}},
+    )
+    return {"success": True, "message": f"'{composer_name}' added to unlabeled composers list"}
+
+
+async def add_youtube_link_to_composition(composer_name: str, composition_name: str, youtube_url: str) -> Dict:
+    """Set the YouTube link for a composition that doesn't have one yet.
+
+    Restricted to admins at the route level; this function additionally
+    guards against overwriting an existing link and validates the URL
+    format before persisting it to MongoDB.
+    """
+    if not youtube_url or not _YOUTUBE_URL_RE.match(youtube_url):
+        raise ValueError("Please provide a valid YouTube URL")
+
+    db = get_db()
+    comp = await db.compositions.find_one({"composer_name": composer_name, "name": composition_name})
+    if not comp:
+        raise ValueError(f"Composition '{composition_name}' not found")
+    if comp.get("youtube_url"):
+        raise ValueError("This composition already has a YouTube link")
+
+    await db.compositions.update_one(
+        {"_id": comp["_id"]},
+        {"$set": {"youtube_url": youtube_url, "updated_at": datetime.utcnow()}},
+    )
+    return {"success": True, "message": "YouTube link added successfully", "youtube_url": youtube_url}
+
+
+async def add_composition_to_composer(composer_name: str, composition_name: str, youtube_url: Optional[str] = None) -> Dict:
+    db = get_db()
+    composer = await db.composers.find_one({"name": composer_name})
+    if not composer:
+        raise ValueError(f"Composer '{composer_name}' not found")
+    if await db.compositions.find_one({"composer_id": composer["_id"], "name": composition_name}):
+        raise ValueError(f"Composition '{composition_name}' already exists")
+    await db.compositions.insert_one(
+        {
+            "name": composition_name,
+            "composer_id": composer["_id"],
+            "composer_name": composer_name,
+            "labeled": False,
+            "emotions": [],
+            "youtube_url": youtube_url,
+            "sheet_pdf_id": None,
+            "sheet_pdf_filename": None,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        }
+    )
+    return {"success": True, "message": f"Added composition '{composition_name}'"}
+
+
+async def label_unlabeled_composition(composer_name: str, composition_name: str, emotions: List[str], user_email: str) -> Dict:
+    db = get_db()
+    if not emotions:
+        raise ValueError("At least one emotion must be provided")
+
+    comp = await db.compositions.find_one({"composer_name": composer_name, "name": composition_name})
+    if not comp:
+        raise ValueError(f"Composition '{composition_name}' not found")
+
+    if comp["labeled"]:
+        raise ValueError(f"Composition '{composition_name}' is already labeled")
+
+    await db.compositions.update_one({"_id": comp["_id"]}, {"$set": {"labeled": True, "emotions": emotions, "updated_at": datetime.utcnow()}})
+
+    user = await db.users.find_one({"email": user_email})
+    await db.labels.insert_one(
+        {"composition_id": comp["_id"], "composition_name": composition_name, "composer_name": composer_name, "user_id": user["_id"], "user_email": user_email, "emotions": emotions, "submitted_at": datetime.utcnow()}
+    )
+
+    if user:
+        await db.users.update_one({"_id": user["_id"]}, {"$inc": {"label_count": 1}})
+
+    return {"success": True, "message": f"Labeled '{composition_name}' with {len(emotions)} emotion(s)"}
+
+
+async def add_emotions_to_composition(composer_name: str, composition_name: str, emotions: List[str], user_email: str) -> Dict:
+    db = get_db()
+    if not emotions:
+        raise ValueError("At least one emotion must be provided")
+
+    comp = await db.compositions.find_one({"composer_name": composer_name, "name": composition_name})
+    if not comp:
+        raise ValueError(f"Composition '{composition_name}' not found")
+
+    existing = set(comp.get("emotions", []))
+    new_emotions = [e for e in emotions if e not in existing]
+    merged = list(existing | set(emotions))
+
+    await db.compositions.update_one({"_id": comp["_id"]}, {"$set": {"emotions": merged, "updated_at": datetime.utcnow()}})
+
+    user = await db.users.find_one({"email": user_email})
+    await db.labels.insert_one(
+        {"composition_id": comp["_id"], "composition_name": composition_name, "composer_name": composer_name, "user_id": user["_id"], "user_email": user_email, "emotions": emotions, "submitted_at": datetime.utcnow()}
+    )
+
+    return {"success": True, "message": f"Added {len(new_emotions)} new emotion(s) to '{composition_name}'"}
+
+
+def _fmt_comp(doc: dict) -> dict:
+    return {
+        "_id": str(doc.get("_id")),
+        "name": doc.get("name"),
+        "composer_id": str(doc.get("composer_id")),
+        "labeled": doc.get("labeled"),
+        "emotions": doc.get("emotions", []),
+        "youtube_url": doc.get("youtube_url"),
+        "sheet_pdf_id": str(doc["sheet_pdf_id"]) if doc.get("sheet_pdf_id") else None,
+        "sheet_pdf_filename": doc.get("sheet_pdf_filename"),
+    }
+
+
+async def upload_sheet_pdf(composer_name: str, composition_name: str, filename: str, file_bytes: bytes) -> Dict:
+    """Store a sheet music PDF for a composition in GridFS and link it from
+    the composition document. Only one PDF is allowed per composition."""
+    if not file_bytes:
+        raise ValueError("The uploaded file is empty")
+    if len(file_bytes) > MAX_SHEET_PDF_SIZE_BYTES:
+        raise ValueError("PDF file is too large. Maximum allowed size is 16 MB")
+    # Validate both the extension and the actual file signature ("%PDF-")
+    # so a renamed non-PDF file can't be uploaded.
+    if not filename.lower().endswith(".pdf") or not file_bytes.startswith(b"%PDF-"):
+        raise ValueError("Please upload a valid PDF file")
+
+    db = get_db()
+    comp = await db.compositions.find_one({"composer_name": composer_name, "name": composition_name})
+    if not comp:
+        raise ValueError(f"Composition '{composition_name}' not found")
+    if comp.get("sheet_pdf_id"):
+        raise ValueError("This composition already has a sheet music PDF")
+
+    bucket = get_gridfs_bucket()
+    file_id = await bucket.upload_from_stream(
+        filename,
+        file_bytes,
+        metadata={"composer_name": composer_name, "composition_name": composition_name, "content_type": "application/pdf"},
+    )
+
+    await db.compositions.update_one(
+        {"_id": comp["_id"]},
+        {"$set": {"sheet_pdf_id": file_id, "sheet_pdf_filename": filename, "updated_at": datetime.utcnow()}},
+    )
+    return {
+        "success": True,
+        "message": "Sheet music PDF uploaded successfully",
+        "sheet_pdf_id": str(file_id),
+        "sheet_pdf_filename": filename,
+    }
+
+
+async def get_sheet_pdf(file_id: str):
+    """Return (filename, bytes) for a stored sheet music PDF."""
     try:
-        with open(NEW_COMPOSERS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return []
+        oid = ObjectId(file_id)
+    except (InvalidId, TypeError):
+        raise ValueError("Invalid file id")
 
-
-def save_new_composers(composers: List[Dict]):
-    """Save new composers to JSON file."""
-    NEW_COMPOSERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(NEW_COMPOSERS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(composers, f, indent=2, ensure_ascii=False)
-
-
-def add_new_composer(composer_name: str) -> Dict:
-    """
-    Add a new composer to the separate JSON file (not the Excel file).
-    
-    Args:
-        composer_name: Full name of the composer
-    
-    Returns:
-        Dict with success status and message
-    """
-    # Load existing new composers
-    new_composers = load_new_composers()
-    
-    # Check if composer already exists in the new composers list
-    for composer in new_composers:
-        if composer['name'].lower() == composer_name.lower():
-            raise ValueError(f"Composer '{composer_name}' already exists in new composers")
-    
-    # Check if composer exists in original Excel file
-    df = load_dataset()
-    existing_in_excel = df[df['Composer Name'].str.lower() == composer_name.lower()]
-    if len(existing_in_excel) > 0:
-        raise ValueError(f"Composer '{composer_name}' already exists in the dataset")
-    
-    # Add new composer
-    new_composers.append({
-        'name': composer_name,
-        'compositions': []  # Empty composition list for new composer
-    })
-    
-    # Save to JSON file
-    save_new_composers(new_composers)
-    
-    return {
-        "success": True,
-        "message": f"Added composer '{composer_name}' successfully"
-    }
-
-
-def add_composition_to_composer(composer_name: str, composition_name: str, youtube_url: Optional[str] = None) -> Dict:
-    """
-    Add a new composition to a composer in the new_composers.json file.
-    
-    Args:
-        composer_name: Full name of the composer
-        composition_name: Name of the composition
-        youtube_url: Optional YouTube URL for the composition
-    
-    Returns:
-        Dict with success status and message
-    """
-    # Load existing new composers
-    new_composers = load_new_composers()
-    
-    # Find the composer
-    composer_found = False
-    for composer in new_composers:
-        if composer['name'].lower() == composer_name.lower():
-            composer_found = True
-            
-            # Check if composition already exists for this composer
-            for comp in composer.get('compositions', []):
-                comp_name = comp if isinstance(comp, str) else comp.get('name', '')
-                if comp_name.lower() == composition_name.lower():
-                    raise ValueError(f"Composition '{composition_name}' already exists for composer '{composer_name}'")
-            
-            # Add the composition
-            if 'compositions' not in composer:
-                composer['compositions'] = []
-            
-            # Store composition as object with name and optional youtube_url
-            composition_data = {
-                'name': composition_name,
-                'youtube_url': youtube_url if youtube_url else None,
-                'emotions': []  # Empty emotions list for new composition
-            }
-            composer['compositions'].append(composition_data)
-            break
-    
-    if not composer_found:
-        raise ValueError(f"Composer '{composer_name}' not found in new composers. Please add the composer first.")
-    
-    # Save to JSON file
-    save_new_composers(new_composers)
-    
-    return {
-        "success": True,
-        "message": f"Added composition '{composition_name}' to composer '{composer_name}' successfully"
-    }
-
-
-def add_emotions_to_composition(composer_name: str, composition_name: str, emotions: List[str]) -> Dict:
-    """
-    Add emotions to a composition. For compositions from the Excel file or new_composers.json,
-    this adds emotions only to new_composers.json (never modifying the Excel file).
-    
-    Args:
-        composer_name: Full name of the composer
-        composition_name: Name of the composition
-        emotions: List of emotion labels to add
-    
-    Returns:
-        Dict with success status and message
-    """
-    if not emotions:
-        raise ValueError("At least one emotion must be provided")
-    
-    new_composers = load_new_composers()
-    
-    # Check if composer exists in new_composers.json
-    composer_found = False
-    for composer in new_composers:
-        if composer['name'].lower() == composer_name.lower():
-            composer_found = True
-            
-            # Find the composition
-            composition_found = False
-            for comp in composer.get('compositions', []):
-                if isinstance(comp, dict) and comp.get('name', '').lower() == composition_name.lower():
-                    composition_found = True
-                    # Add emotions to existing list (avoid duplicates)
-                    existing_emotions = comp.get('emotions', [])
-                    for emotion in emotions:
-                        if emotion not in existing_emotions:
-                            existing_emotions.append(emotion)
-                    comp['emotions'] = existing_emotions
-                    break
-            
-            if not composition_found:
-                # Composition doesn't exist in new_composers.json yet
-                # This means it's from the Excel file and we're adding new labels
-                # Add it to this composer's compositions in new_composers.json
-                if 'compositions' not in composer:
-                    composer['compositions'] = []
-                
-                composer['compositions'].append({
-                    'name': composition_name,
-                    'youtube_url': None,  # Will be fetched from Excel if needed
-                    'emotions': emotions
-                })
-            break
-    
-    if not composer_found:
-        # Composer doesn't exist in new_composers.json
-        # This is a composer from the Excel file, so add them with this composition
-        new_composers.append({
-            'name': composer_name,
-            'compositions': [{
-                'name': composition_name,
-                'youtube_url': None,
-                'emotions': emotions
-            }]
-        })
-    
-    # Save to JSON file
-    save_new_composers(new_composers)
-    
-    return {
-        "success": True,
-        "message": f"Added {len(emotions)} emotion(s) to '{composition_name}' by {composer_name}"
-    }
-
-
-def label_unlabeled_composition(composer_name: str, composition_name: str, emotions: List[str]) -> Dict:
-    """
-    Label an unlabeled composition. This moves it from unlabeled to labeled in new_composers.json.
-    If the composition is from Excel file, adds it to new_composers.json with labels.
-    
-    Args:
-        composer_name: Full name of the composer
-        composition_name: Name of the composition
-        emotions: List of emotion labels
-    
-    Returns:
-        Dict with success status and message
-    """
-    if not emotions:
-        raise ValueError("At least one emotion must be provided")
-    
-    new_composers = load_new_composers()
-    
-    # Find and update the composition in new_composers.json
-    for composer in new_composers:
-        if composer['name'].lower() == composer_name.lower():
-            for comp in composer.get('compositions', []):
-                if isinstance(comp, dict) and comp.get('name', '').lower() == composition_name.lower():
-                    # Found it - add emotions
-                    comp['emotions'] = emotions
-                    save_new_composers(new_composers)
-                    return {
-                        "success": True,
-                        "message": f"Labeled '{composition_name}' by {composer_name} with {len(emotions)} emotion(s)"
-                    }
-    
-    # If not found in new_composers.json, it's from Excel file
-    # Add it to new_composers.json as labeled
-    composer_found = False
-    for composer in new_composers:
-        if composer['name'].lower() == composer_name.lower():
-            composer_found = True
-            if 'compositions' not in composer:
-                composer['compositions'] = []
-            composer['compositions'].append({
-                'name': composition_name,
-                'youtube_url': None,
-                'emotions': emotions
-            })
-            break
-    
-    if not composer_found:
-        # Add new composer with this labeled composition
-        new_composers.append({
-            'name': composer_name,
-            'compositions': [{
-                'name': composition_name,
-                'youtube_url': None,
-                'emotions': emotions
-            }]
-        })
-    
-    save_new_composers(new_composers)
-    
-    return {
-        "success": True,
-        "message": f"Labeled '{composition_name}' by {composer_name} with {len(emotions)} emotion(s)"
-    }
+    bucket = get_gridfs_bucket()
+    try:
+        grid_out = await bucket.open_download_stream(oid)
+        data = await grid_out.read()
+    except Exception:
+        raise ValueError("Sheet music PDF not found")
+    return grid_out.filename or "sheet.pdf", data

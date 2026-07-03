@@ -33,7 +33,13 @@ const LoginPage: React.FC = () => {
       login(response.access_token, response.user);
       navigate('/home');
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Login failed. Please try again.');
+      if (err.response?.data?.detail) {
+        setError(err.response.data.detail);
+      } else if (err.code === 'ERR_NETWORK' || !err.response) {
+        setError('Unable to reach the server. Please check your connection and try again.');
+      } else {
+        setError('Login failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }

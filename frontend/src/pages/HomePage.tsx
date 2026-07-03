@@ -14,19 +14,26 @@ import {
   CardContent,
   CardActionArea,
 } from '@mui/material';
+import { useTheme as useMuiTheme } from '@mui/material/styles';
+import { useTheme } from '../context/ThemeContext';
+import { getColors } from '../config/colorConfig';
 import LibraryMusicIcon from '@mui/icons-material/LibraryMusic';
 import QueueMusicIcon from '@mui/icons-material/QueueMusic';
 import { getComposersSummary } from '../api/data';
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
-  const [target, setTarget] = useState(1000);
+  const { isDarkMode } = useTheme();
+  const colors = getColors(isDarkMode);
+  const [target, setTarget] = useState(1500);
 
   useEffect(() => {
     const fetchTarget = async () => {
       try {
         const summary = await getComposersSummary();
-        setTarget(summary.collection_target);
+        const newTarget = summary.collection_target;
+        
+        setTarget(newTarget);
       } catch (error) {
         console.error('Failed to load target:', error);
       }
@@ -44,22 +51,28 @@ const HomePage: React.FC = () => {
             padding: 3,
             borderRadius: 4,
             textAlign: 'center',
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            backdropFilter: 'blur(10px)',
-            boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.37)',
-            border: '1px solid rgba(255, 255, 255, 0.18)',
+            backgroundColor: colors.backgroundSecondary,
+            backdropFilter: colors.backdropFilter,
+            boxShadow: isDarkMode
+              ? '0 8px 32px 0 rgba(0, 0, 0, 0.5)'
+              : '0 8px 32px 0 rgba(31, 38, 135, 0.37)',
+            border: isDarkMode
+              ? '1px solid rgba(255, 255, 255, 0.1)'
+              : '1px solid rgba(255, 255, 255, 0.18)',
             mb: 4,
           }}
         >
           <Typography variant="h5" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
             Help Me Reach {target} Compositions!
           </Typography>
-          <Typography variant="body1" color="text.secondary" sx={{ lineHeight: 1.8 }}>
-            <strong>Priority:</strong> Label unlabeled compositions with emotions you feel while listening.
+          <Typography variant="body1" color="text.secondary" sx={{ lineHeight: 1.8, maxWidth: 800, mx: 'auto', textAlign: 'center' }}>
+            I'm a Master's student at the Faculty of Mathematics researching which emotions people associate with piano compositions, to help train a model that predicts emotions from musical notation. This data is essential for my thesis, so I'm truly grateful for any time you can spare. 💛
             <br />
-            You can also explore already labeled data and add new labels.
             <br />
-            <strong>Important:</strong> Add composers or compositions that aren't in our dataset yet – this helps us reach our goal!
+            <strong>Priority:</strong> Add compositions that aren't in my dataset yet - new pieces are the most valuable contribution. If you can't think of any, feel free to label some from the Unlabeled list instead. You can add emotions to already Labeled compositions but that will not affect the progress bar, so it's less impactful than adding new pieces.
+            <br />
+            <br />
+            <strong>Note:</strong> Only solo piano pieces count (no piano concertos). If it's hard to find the sheet music online, you can upload the score yourself as pdf file with maximum size of 16 MB.
           </Typography>
         </Paper>
 
@@ -70,8 +83,8 @@ const HomePage: React.FC = () => {
               elevation={16}
               sx={{
                 height: '100%',
-                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                backdropFilter: 'blur(10px)',
+                backgroundColor: colors.backgroundSecondary,
+                backdropFilter: colors.backdropFilter,
                 borderRadius: 4,
                 transition: 'transform 0.3s, box-shadow 0.3s',
                 '&:hover': {
@@ -102,8 +115,8 @@ const HomePage: React.FC = () => {
               elevation={16}
               sx={{
                 height: '100%',
-                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                backdropFilter: 'blur(10px)',
+                backgroundColor: colors.backgroundSecondary,
+                backdropFilter: colors.backdropFilter,
                 borderRadius: 4,
                 transition: 'transform 0.3s, box-shadow 0.3s',
                 '&:hover': {

@@ -4,6 +4,9 @@
  */
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTheme as useMuiTheme } from '@mui/material/styles';
+import { useTheme } from '../context/ThemeContext';
+import { getColors } from '../config/colorConfig';
 import {
   Container,
   Box,
@@ -23,15 +26,19 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  Autocomplete,
   Snackbar,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
-import { getComposersSummary, Composer, addComposer } from '../api/data';
+import { getComposersSummary, Composer, addComposer, getAllComposerNames, addComposerToUnlabeled } from '../api/data';
 import Navigation from '../components/Navigation';
 
 const UnlabeledComposersPage: React.FC = () => {
+  const { isDarkMode } = useTheme();
+  const colors = getColors(isDarkMode);
   const [composers, setComposers] = useState<Composer[]>([]);
+  const [allComposerNames, setAllComposerNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -53,7 +60,17 @@ const UnlabeledComposersPage: React.FC = () => {
       }
     };
 
+    const fetchAllComposerNames = async () => {
+      try {
+        const names = await getAllComposerNames();
+        setAllComposerNames(names);
+      } catch (err) {
+        console.error('Failed to load composer names:', err);
+      }
+    };
+
     fetchComposers();
+    fetchAllComposerNames();
   }, []);
 
   // Group composers by first letter of surname
@@ -98,25 +115,49 @@ const UnlabeledComposersPage: React.FC = () => {
 
   const handleAddComposer = async () => {
     const trimmedName = newComposerName.trim();
-    
+
     if (!trimmedName) {
-      setSnackbarMessage('Please enter a composer name');
+      setSnackbarMessage('Please enter or select a composer name');
       setSnackbarOpen(true);
       return;
     }
 
+    // If the composer is already visible in the unlabeled list, just jump
+    // straight to their page instead of trying to add them again.
+    const alreadyInUnlabeled = composers.find(
+      (c) => c.name.toLowerCase() === trimmedName.toLowerCase()
+    );
+    if (alreadyInUnlabeled) {
+      handleCloseDialog();
+      navigate(`/unlabeled-composers/${encodeURIComponent(alreadyInUnlabeled.name)}`);
+      return;
+    }
+
     try {
-      // Call API to add new composer
-      const result = await addComposer(trimmedName);
-      
+      // If the composer is already registered (e.g. all their compositions
+      // are labeled) just surface them on this page with a 0 count instead
+      // of trying to create a duplicate composer.
+      const isKnownComposer = allComposerNames.some(
+        (name) => name.toLowerCase() === trimmedName.toLowerCase()
+      );
+
+      const result = isKnownComposer
+        ? await addComposerToUnlabeled(trimmedName)
+        : await addComposer(trimmedName);
+
       if (result.success) {
-        setSnackbarMessage(`Successfully added "${trimmedName}" to unlabeled composers!`);
+        setSnackbarMessage(result.message || `Successfully added "${trimmedName}" to unlabeled composers!`);
         setSnackbarOpen(true);
         handleCloseDialog();
-        
-        // Refresh the composers list to show the new composer
+
+        // Refresh the composers list and known composer names
         const updatedSummary = await getComposersSummary();
         setComposers(updatedSummary.unlabeled);
+
+        if (!isKnownComposer) {
+          const updatedNames = await getAllComposerNames();
+          setAllComposerNames(updatedNames);
+        }
       }
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || 'Failed to add composer. Please try again.';
@@ -160,10 +201,14 @@ const UnlabeledComposersPage: React.FC = () => {
               padding: 6,
               borderRadius: 4,
               textAlign: 'center',
-              backgroundColor: 'rgba(255, 255, 255, 0.95)',
-              backdropFilter: 'blur(10px)',
-              boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.37)',
-              border: '1px solid rgba(255, 255, 255, 0.18)',
+              backgroundColor: colors.backgroundSecondary,
+              backdropFilter: colors.backdropFilter,
+              boxShadow: isDarkMode
+                ? '0 8px 32px 0 rgba(0, 0, 0, 0.5)'
+                : '0 8px 32px 0 rgba(31, 38, 135, 0.37)',
+              border: isDarkMode
+                ? '1px solid rgba(255, 255, 255, 0.1)'
+                : '1px solid rgba(255, 255, 255, 0.18)',
             }}
           >
             <Typography variant="h4" component="h1" gutterBottom sx={{ mb: 3 }}>
@@ -203,21 +248,32 @@ const UnlabeledComposersPage: React.FC = () => {
           <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
             <DialogTitle sx={{ fontWeight: 'bold' }}>Add New Composer</DialogTitle>
             <DialogContent>
-              <TextField
-                autoFocus
-                margin="dense"
-                label="Composer Full Name"
-                fullWidth
-                variant="outlined"
-                value={newComposerName}
-                onChange={(e) => setNewComposerName(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    handleAddComposer();
-                  }
-                }}
-                placeholder="e.g., Wolfgang Amadeus Mozart"
-                helperText="Enter the full name of the composer (first and last name)"
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Pick an existing composer to jump to their page, or type a new name to add them.
+              </Typography>
+              <Autocomplete
+                freeSolo
+                options={allComposerNames}
+                inputValue={newComposerName}
+                onInputChange={(_, newInputValue) => setNewComposerName(newInputValue)}
+                onChange={(_, newValue) => setNewComposerName(newValue || '')}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    autoFocus
+                    margin="dense"
+                    label="Composer Full Name"
+                    fullWidth
+                    variant="outlined"
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        handleAddComposer();
+                      }
+                    }}
+                    placeholder="e.g., Wolfgang Amadeus Mozart"
+                    helperText="Select an existing composer or enter a new full name"
+                  />
+                )}
                 sx={{ mt: 2 }}
               />
             </DialogContent>
@@ -268,8 +324,8 @@ const UnlabeledComposersPage: React.FC = () => {
           sx={{
             mb: 4,
             p: 2,
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            backdropFilter: 'blur(10px)',
+            backgroundColor: colors.backgroundSecondary,
+            backdropFilter: colors.backdropFilter,
             borderRadius: 3,
           }}
         >
@@ -328,17 +384,19 @@ const UnlabeledComposersPage: React.FC = () => {
           <Box
             key={letter}
             ref={(el: HTMLDivElement | null) => (sectionRefs.current[letter] = el)}
-            sx={{ mb: 4, scrollMarginTop: '100px' }}
+            sx={{ mb: 4, scrollMarginTop: '160px' }}
           >
             <Typography
-              variant="h4"
+              variant="h3"
               component="h2"
               gutterBottom
               sx={{
-                color: 'white',
+                color: '#ffffff',
                 fontWeight: 'bold',
                 mb: 2,
-                textShadow: '2px 2px 4px rgba(0,0,0,0.3)',
+                textShadow: isDarkMode
+                  ? '2px 2px 4px rgba(0,0,0,0.8), 0 0 10px rgba(0,0,0,0.6)'
+                  : '2px 2px 4px rgba(0,0,0,0.5)',
               }}
             >
               {letter}
@@ -350,8 +408,8 @@ const UnlabeledComposersPage: React.FC = () => {
                   <Card
                     elevation={8}
                     sx={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                      backdropFilter: 'blur(10px)',
+                      backgroundColor: colors.backgroundSecondary,
+                      backdropFilter: colors.backdropFilter,
                       borderRadius: 3,
                       transition: 'transform 0.2s, box-shadow 0.2s',
                       '&:hover': {
@@ -407,21 +465,32 @@ const UnlabeledComposersPage: React.FC = () => {
       <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 'bold' }}>Add New Composer</DialogTitle>
         <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Composer Full Name"
-            fullWidth
-            variant="outlined"
-            value={newComposerName}
-            onChange={(e) => setNewComposerName(e.target.value)}
-            onKeyPress={(e) => {
-              if (e.key === 'Enter') {
-                handleAddComposer();
-              }
-            }}
-            placeholder="e.g., Wolfgang Amadeus Mozart"
-            helperText="Enter the full name of the composer (first and last name)"
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Pick an existing composer to jump to their page, or type a new name to add them.
+          </Typography>
+          <Autocomplete
+            freeSolo
+            options={allComposerNames}
+            inputValue={newComposerName}
+            onInputChange={(_, newInputValue) => setNewComposerName(newInputValue)}
+            onChange={(_, newValue) => setNewComposerName(newValue || '')}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                autoFocus
+                margin="dense"
+                label="Composer Full Name"
+                fullWidth
+                variant="outlined"
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    handleAddComposer();
+                  }
+                }}
+                placeholder="e.g., Wolfgang Amadeus Mozart"
+                helperText="Select an existing composer or enter a new full name"
+              />
+            )}
             sx={{ mt: 2 }}
           />
         </DialogContent>

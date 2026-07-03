@@ -15,8 +15,12 @@ class UserLogin(BaseModel):
 class UserResponse(BaseModel):
     """Response model for user data."""
     email: str
-    name: str
-    created_at: datetime
+    name: Optional[str] = None
+    created_at: Optional[datetime] = None
+    is_admin: bool = False
+
+    class Config:
+        from_attributes = True
 
 
 class Token(BaseModel):

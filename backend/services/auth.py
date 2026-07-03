@@ -1,66 +1,52 @@
-"""
-Authentication service.
-Handles JWT token creation and validation.
-In-memory user storage for MVP.
-"""
 from datetime import datetime, timedelta
-from typing import Optional, Dict
+from typing import Optional
 from jose import JWTError, jwt
-from fastapi import HTTPException, status
 from config import settings
-
-# In-memory user storage (temporary - no database)
-# Format: {email: {name: str, created_at: datetime}}
-users_db: Dict[str, dict] = {}
+from db.database import get_db
 
 
 def create_access_token(data: dict) -> str:
-    """Create a JWT access token."""
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
-    to_encode.update({"exp": expire})
-    
-    encoded_jwt = jwt.encode(
-        to_encode,
-        settings.secret_key,
-        algorithm=settings.jwt_algorithm
-    )
-    return encoded_jwt
+    payload = {**data, "exp": datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)}
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
 
 
 def verify_token(token: str) -> Optional[str]:
-    """Verify JWT token and return email if valid."""
     try:
-        payload = jwt.decode(
-            token,
-            settings.secret_key,
-            algorithms=[settings.jwt_algorithm]
-        )
-        email: str = payload.get("sub")
-        if email is None:
-            return None
-        return email
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
+        return payload.get("sub")
     except JWTError:
         return None
 
 
-def get_or_create_user(email: str) -> dict:
-    """
-    Get user from in-memory storage or create if doesn't exist.
-    Returns user data dict.
-    """
-    if email not in users_db:
-        # Extract name from email (before @)
-        name = email.split("@")[0].capitalize()
-        users_db[email] = {
-            "email": email,
-            "name": name,
-            "created_at": datetime.utcnow()
-        }
-    
-    return users_db[email]
+async def get_or_create_user(email: str) -> dict:
+    db = get_db()
+    user = await db.users.find_one({"email": email})
+    if not user:
+        doc = {"email": email, "name": email.split("@")[0].capitalize(), "created_at": datetime.utcnow(), "label_count": 0}
+        result = await db.users.insert_one(doc)
+        user = await db.users.find_one({"_id": result.inserted_id})
+    return _fmt_user(user)
 
 
-def get_user_by_email(email: str) -> Optional[dict]:
-    """Get user by email from in-memory storage."""
-    return users_db.get(email)
+async def get_user_by_email(email: str) -> Optional[dict]:
+    db = get_db()
+    user = await db.users.find_one({"email": email})
+    return _fmt_user(user) if user else None
+
+
+def _fmt_user(doc: dict) -> dict:
+    """Format user document for API response, converting ObjectId to string.
+
+    Only a computed `is_admin` boolean is exposed here - the actual admin
+    email list (settings.get_admin_emails()) never leaves the backend, so
+    it can't be read out of the frontend bundle or API responses.
+    """
+    if not doc:
+        return None
+    email = doc.get("email")
+    return {
+        "email": email,
+        "name": doc.get("name"),
+        "created_at": doc.get("created_at"),
+        "is_admin": bool(email) and email.strip().lower() in settings.get_admin_emails(),
+    }

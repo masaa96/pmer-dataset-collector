@@ -8,6 +8,7 @@ export interface UserResponse {
   email: string;
   name: string;
   created_at: string;
+  is_admin: boolean;
 }
 
 export interface LoginResponse {

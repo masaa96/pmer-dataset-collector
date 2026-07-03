@@ -4,6 +4,9 @@
  */
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useTheme as useMuiTheme } from '@mui/material/styles';
+import { useTheme } from '../context/ThemeContext';
+import { getColors } from '../config/colorConfig';
 import {
   Container,
   Box,
@@ -21,6 +24,8 @@ import Navigation from '../components/Navigation';
 
 const LabeledComposerCompositionsPage: React.FC = () => {
   const { composerName } = useParams<{ composerName: string }>();
+  const { isDarkMode } = useTheme();
+  const colors = getColors(isDarkMode);
   const navigate = useNavigate();
   const [compositions, setCompositions] = useState<Composition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,8 +90,8 @@ const LabeledComposerCompositionsPage: React.FC = () => {
                 sx={{
                   display: 'flex',
                   flexDirection: 'column',
-                  backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                  backdropFilter: 'blur(10px)',
+                  backgroundColor: colors.backgroundSecondary,
+                  backdropFilter: colors.backdropFilter,
                   borderRadius: 3,
                   transition: 'transform 0.2s, box-shadow 0.2s',
                   '&:hover': {
