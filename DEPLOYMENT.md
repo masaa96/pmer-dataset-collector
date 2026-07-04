@@ -243,10 +243,89 @@ npm run build
 ```
 No Nginx restart needed — it always serves the latest `dist/` contents.
 
-## 13. HTTPS (optional, requires a domain)
-Let's Encrypt/Certbot cannot issue a certificate for a bare IP address. Once you point a real domain at `165.245.253.130`:
+## 13. HTTPS with a real domain
+
+Let's Encrypt/Certbot cannot issue a certificate for a bare IP address, so this
+requires owning a domain (or subdomain) first.
+
+### 13.1 Register a domain
+Buy one from any registrar (Namecheap, Porkbun, GoDaddy, Cloudflare Registrar,
+etc.) — a `.com`/`.dev`/`.app` is usually a few dollars/year. You don't need
+anything fancy; even a cheap TLD works fine for a thesis project.
+
+### 13.2 Point DNS at the droplet (Cloudflare)
+Domains bought through **Cloudflare Registrar** are already on Cloudflare's
+nameservers, so DNS is managed directly in the Cloudflare dashboard — no
+nameserver change needed.
+
+1. Go to the Cloudflare dashboard → select `pmer-dataset-collector.com` → **DNS → Records**.
+2. Add:
+   | Type | Name  | IPv4 address        | Proxy status |
+   |------|-------|----------------------|--------------|
+   | A    | `@`   | `165.245.253.130`    | **DNS only** (grey cloud) |
+   | A    | `www` | `165.245.253.130`    | **DNS only** (grey cloud) |
+
+   Keep the proxy **off (grey cloud)** for now — Certbot's HTTP validation
+   needs to reach your droplet directly. You can switch it to **Proxied**
+   (orange cloud) afterward once HTTPS is working on the origin, to get
+   Cloudflare's CDN/DDoS protection on top.
+3. Verify propagation (usually near-instant with Cloudflare):
+   ```powershell
+   nslookup pmer-dataset-collector.com
+   ```
+   It should resolve to `165.245.253.130`.
+
+### 13.3 Update Nginx to use the domain name
+```bash
+sudo nano /etc/nginx/sites-available/pmer
+```
+Change:
+```nginx
+server_name 165.245.253.130;
+```
+to:
+```nginx
+server_name pmer-dataset-collector.com www.pmer-dataset-collector.com;
+```
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 13.4 Issue the certificate
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d yourdomain.com
+sudo certbot --nginx -d pmer-dataset-collector.com -d www.pmer-dataset-collector.com
 ```
-Update `server_name` in the Nginx config and `ALLOWED_ORIGINS` / `VITE_API_URL` to use `https://yourdomain.com` afterward.
+Certbot will ask for an email (for renewal/expiry notices) and whether to
+redirect HTTP→HTTPS — choose **yes/redirect**. It automatically edits the
+Nginx config to add the `listen 443 ssl` block and the cert paths, and sets up
+a systemd timer for auto-renewal (certs are valid 90 days). Verify the timer:
+```bash
+sudo systemctl list-timers | grep certbot
+sudo certbot renew --dry-run   # confirms auto-renewal works, doesn't renew anything yet
+```
+
+### 13.5 Update app config to use `https://pmer-dataset-collector.com`
+Backend — `/var/www/pmer-dataset-collector/backend/.env`:
+```env
+ALLOWED_ORIGINS=https://pmer-dataset-collector.com,https://www.pmer-dataset-collector.com
+```
+```bash
+sudo systemctl restart pmer-backend
+```
+
+Frontend — rebuild with the new API origin (do this locally or on the droplet,
+same as section 8):
+```env
+VITE_API_URL=https://pmer-dataset-collector.com
+```
+```bash
+npm run build
+# if built locally: scp -r dist deploy@165.245.253.130:/var/www/pmer-dataset-collector/frontend/dist
+```
+
+### 13.6 Verify
+Open `https://pmer-dataset-collector.com` in a browser — should show a valid
+padlock, and `http://pmer-dataset-collector.com` / the bare IP should redirect
+to it.

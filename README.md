@@ -1,6 +1,6 @@
 # PMER Dataset Collector
 
-**🔗 Live app:** http://165.245.253.130
+**🔗 Live app:** [pmer-dataset-collector.com](https://pmer-dataset-collector.com/)
 
 A web application for collecting emotional labeling data for classical music compositions as part of a master thesis research project.
 
