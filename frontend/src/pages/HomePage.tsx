@@ -68,7 +68,7 @@ const HomePage: React.FC = () => {
             I'm a Master's student at the Faculty of Mathematics researching which emotions people associate with piano compositions, to help train a model that predicts emotions from musical notation. This data is essential for my thesis, so I'm truly grateful for any time you can spare. 💛
             <br />
             <br />
-            <strong>Priority:</strong> Add compositions that aren't in my dataset yet - new pieces are the most valuable contribution. If you can't think of any, feel free to label some from the Unlabeled list instead. You can add emotions to already Labeled compositions but that will not affect the progress bar, so it's less impactful than adding new pieces.
+            <strong>There are three ways to contribute:</strong> add new compositions that aren't in my dataset yet, label compositions from the Unlabeled list, or add your own emotions to already Labeled ones - everyone reacts differently to music, so multiple opinions on the same piece are also valuable. Labeling unlabeled or adding new compositions moves the progress bar above, but all three genuinely help the research.
             <br />
             <br />
             <strong>Note:</strong> Only solo piano pieces count (no piano concertos). If it's hard to find the sheet music online, you can upload the score yourself as pdf file with maximum size of 16 MB.

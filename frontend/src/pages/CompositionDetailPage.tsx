@@ -20,6 +20,7 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  Autocomplete,
   IconButton,
   Divider,
   Snackbar,
@@ -31,7 +32,7 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import YouTubeEmbed from '../components/YouTubeEmbed';
 import Navigation from '../components/Navigation';
-import { Composition, getAllEmotions, submitLabels, addYoutubeLink, uploadSheetPdf } from '../api/data';
+import { Composition, getAllEmotions, submitLabels, addYoutubeLink, uploadSheetPdf, getAllComposerCompositions } from '../api/data';
 import { API_BASE_URL } from '../api/config';
 import { useProgress } from '../context/ProgressContext';
 import { useAuth } from '../context/AuthContext';
@@ -39,7 +40,7 @@ import { useAuth } from '../context/AuthContext';
 const MAX_SHEET_PDF_SIZE_BYTES = 16 * 1024 * 1024; // 16 MB
 
 const CompositionDetailPage: React.FC = () => {
-  const { composerName } = useParams<{ composerName: string; compositionName: string }>();
+  const { composerName, compositionName } = useParams<{ composerName: string; compositionName: string }>();
   const { isDarkMode } = useTheme();
   const colors = getColors(isDarkMode);
   const navigate = useNavigate();
@@ -48,8 +49,14 @@ const CompositionDetailPage: React.FC = () => {
   const { user } = useAuth();
   const isAdmin = user?.is_admin ?? false;
   
-  // Get composition data from navigation state
-  const composition = location.state?.composition as Composition | undefined;
+  // Get composition data from navigation state as an initial value for a fast
+  // first render. This is then refreshed from the API below, since
+  // navigation state can go stale (e.g. it's preserved across a manual page
+  // reload, or after a composition is edited directly in the database) -
+  // relying on it alone would keep showing outdated data indefinitely.
+  const [composition, setComposition] = useState<Composition | undefined>(
+    location.state?.composition as Composition | undefined
+  );
 
   // Determine if this is a labeled or unlabeled composition based on URL
   const isLabeled = location.pathname.includes('/labeled-composers/');
@@ -89,6 +96,29 @@ const CompositionDetailPage: React.FC = () => {
     loadEmotions();
   }, []);
 
+  // Refresh the composition's data directly from the API on mount, so this
+  // page always reflects the current database state (YouTube link, sheet
+  // music, emotions) instead of a potentially stale snapshot carried over in
+  // navigation state.
+  useEffect(() => {
+    const refreshComposition = async () => {
+      if (!composerName || !compositionName) return;
+      try {
+        const all = await getAllComposerCompositions(composerName);
+        const fresh = all.find((c) => c.name === compositionName);
+        if (fresh) {
+          setComposition(fresh);
+          setCurrentYoutubeUrl(fresh.youtube_url || '');
+          setCurrentSheetPdfId(fresh.sheet_pdf_id || null);
+          setCurrentSheetPdfFilename(fresh.sheet_pdf_filename || null);
+        }
+      } catch (error) {
+        console.error('Failed to refresh composition data:', error);
+      }
+    };
+    refreshComposition();
+  }, [composerName, compositionName]);
+
   // Handle adding an emotion from available list
   const handleAddEmotion = (emotion: string) => {
     if (!selectedEmotions.includes(emotion) && !originalEmotions.includes(emotion) && !isSubmitted) {
@@ -103,18 +133,30 @@ const CompositionDetailPage: React.FC = () => {
     }
   };
 
-  // Handle adding a new emotion to the dataset
+  // Handle adding a new emotion to the dataset - or, if the entered name
+  // already matches an existing emotion, just add that one instead of
+  // creating a near-duplicate.
   const handleAddNewEmotion = () => {
     const trimmedName = newEmotionName.trim();
-    const emotionExists = availableEmotions.some(
+    if (!trimmedName) {
+      return;
+    }
+
+    const existing = availableEmotions.find(
       emotion => emotion.toLowerCase() === trimmedName.toLowerCase()
     );
-    if (trimmedName && !emotionExists) {
-      setAvailableEmotions([...availableEmotions, trimmedName]);
-      setSelectedEmotions([...selectedEmotions, trimmedName]);
+
+    if (existing) {
+      handleAddEmotion(existing);
       setNewEmotionName('');
       setOpenNewEmotionDialog(false);
+      return;
     }
+
+    setAvailableEmotions([...availableEmotions, trimmedName]);
+    setSelectedEmotions([...selectedEmotions, trimmedName]);
+    setNewEmotionName('');
+    setOpenNewEmotionDialog(false);
   };
 
   // Handle submit
@@ -261,6 +303,19 @@ const CompositionDetailPage: React.FC = () => {
   const unselectedEmotions = availableEmotions.filter(
     emotion => !allCurrentEmotions.includes(emotion)
   );
+
+  // If the "Add New Emotion" dialog input matches an existing emotion in the
+  // dataset, surface it so the user can reuse it instead of creating a
+  // duplicate (e.g. "happy" vs "Happy").
+  const trimmedNewEmotionName = newEmotionName.trim();
+  const matchedExistingEmotion = trimmedNewEmotionName
+    ? availableEmotions.find(
+        emotion => emotion.toLowerCase() === trimmedNewEmotionName.toLowerCase()
+      ) || null
+    : null;
+  const isMatchedEmotionAlreadyCurrent = matchedExistingEmotion
+    ? allCurrentEmotions.includes(matchedExistingEmotion)
+    : false;
 
   if (!composition) {
     return (
@@ -620,33 +675,36 @@ const CompositionDetailPage: React.FC = () => {
         <DialogTitle>Add New Emotion</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Enter a new emotion that's not in the current list. This will be added to the dataset.
+            Pick an existing emotion from the dataset to reuse it, or type a new one to add it.
           </Typography>
-          <TextField
-            autoFocus
-            fullWidth
-            label="Emotion Name"
-            value={newEmotionName}
-            onChange={(e) => setNewEmotionName(e.target.value)}
-            onKeyPress={(e) => {
-              const emotionExists = availableEmotions.some(
-                emotion => emotion.toLowerCase() === newEmotionName.trim().toLowerCase()
-              );
-              if (e.key === 'Enter' && newEmotionName.trim() && !emotionExists) {
-                handleAddNewEmotion();
-              }
-            }}
-            placeholder="e.g., Melancholic, Triumphant"
-            error={
-              newEmotionName.trim() !== '' && 
-              availableEmotions.some(emotion => emotion.toLowerCase() === newEmotionName.trim().toLowerCase())
-            }
-            helperText={
-              newEmotionName.trim() !== '' && 
-              availableEmotions.some(emotion => emotion.toLowerCase() === newEmotionName.trim().toLowerCase())
-                ? 'This emotion already exists in the dataset'
-                : ''
-            }
+          <Autocomplete
+            freeSolo
+            options={availableEmotions}
+            inputValue={newEmotionName}
+            onInputChange={(_, newInputValue) => setNewEmotionName(newInputValue)}
+            onChange={(_, newValue) => setNewEmotionName(newValue || '')}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                autoFocus
+                fullWidth
+                label="Emotion Name"
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' && trimmedNewEmotionName && !isMatchedEmotionAlreadyCurrent) {
+                    handleAddNewEmotion();
+                  }
+                }}
+                placeholder="e.g., Melancholic, Triumphant"
+                error={isMatchedEmotionAlreadyCurrent}
+                helperText={
+                  isMatchedEmotionAlreadyCurrent
+                    ? 'This emotion is already assigned to this composition'
+                    : matchedExistingEmotion
+                      ? 'This emotion already exists in the dataset - it will be reused instead of creating a duplicate'
+                      : ''
+                }
+              />
+            )}
           />
         </DialogContent>
         <DialogActions>
@@ -654,12 +712,9 @@ const CompositionDetailPage: React.FC = () => {
           <Button 
             onClick={handleAddNewEmotion} 
             variant="contained"
-            disabled={
-              !newEmotionName.trim() || 
-              availableEmotions.some(emotion => emotion.toLowerCase() === newEmotionName.trim().toLowerCase())
-            }
+            disabled={!trimmedNewEmotionName || isMatchedEmotionAlreadyCurrent}
           >
-            Add Emotion
+            {matchedExistingEmotion ? 'Add Existing Emotion' : 'Add Emotion'}
           </Button>
         </DialogActions>
       </Dialog>
