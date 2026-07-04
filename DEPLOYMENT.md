@@ -165,6 +165,24 @@ server {
 
     client_max_body_size 20M;   # sheet music PDF uploads are capped at 16MB
 
+    # Never cache the HTML shell - it must always be fetched fresh so users
+    # get the latest JS/CSS bundle reference immediately after each deploy,
+    # instead of the browser silently serving a stale cached index.html.
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        expires 0;
+    }
+
+    # Hashed JS/CSS/font/image files are safe to cache aggressively - Vite
+    # gives each build's files a new content hash, so a new deploy naturally
+    # produces new filenames and busts any old cache automatically.
+    location ~* \.(?:js|css|png|jpg|jpeg|gif|svg|woff2?|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
     location / {
         try_files $uri /index.html;
     }
