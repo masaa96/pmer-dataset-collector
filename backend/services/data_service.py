@@ -40,8 +40,17 @@ async def get_composers_summary() -> Dict:
     # new composers, or existing composers picked from the dropdown that
     # currently have no unlabeled compositions) still show up with a 0
     # count, so users can immediately start adding compositions for them.
+    # This placeholder only applies while the composer truly has no
+    # compositions of their own yet - once they have at least one (labeled
+    # or unlabeled), the real composition counts above should decide
+    # whether/where they show up, so a stale flag can't keep a fully-labeled
+    # composer stuck on the unlabeled list with a 0 count.
+    labeled_names = {c["name"] for c in labeled}
     async for composer in db.composers.find({"show_when_empty": True}, {"name": 1}):
-        unlabeled_counts.setdefault(composer["name"], 0)
+        name = composer["name"]
+        if name in unlabeled_counts or name in labeled_names:
+            continue
+        unlabeled_counts[name] = 0
 
     labeled.sort(key=lambda c: c["name"])
     unlabeled = [{"name": name, "composition_count": count} for name, count in sorted(unlabeled_counts.items())]
@@ -207,6 +216,17 @@ async def label_unlabeled_composition(composer_name: str, composition_name: str,
         raise ValueError(f"Composition '{composition_name}' is already labeled")
 
     await db.compositions.update_one({"_id": comp["_id"]}, {"$set": {"labeled": True, "emotions": emotions, "updated_at": datetime.utcnow()}})
+
+    # If that was this composer's last unlabeled composition, clear the
+    # "show_when_empty" placeholder flag so they no longer show up on the
+    # Unlabeled Composers page with a 0 count - they've effectively moved
+    # over to the Labeled Composers page.
+    remaining_unlabeled = await db.compositions.count_documents({"composer_name": composer_name, "labeled": False})
+    if remaining_unlabeled == 0:
+        await db.composers.update_one(
+            {"name": composer_name},
+            {"$set": {"show_when_empty": False, "updated_at": datetime.utcnow()}},
+        )
 
     user = await db.users.find_one({"email": user_email})
     await db.labels.insert_one(
