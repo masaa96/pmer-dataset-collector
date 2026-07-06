@@ -37,7 +37,7 @@ Backend runs on http://localhost:8000 (API docs at `/docs`)
 cd frontend
 npm install
 cp .env.example .env   # set VITE_API_URL if the backend isn't on localhost:8000
-npm run dev
+npm run dev (or npm.cmd run dev)
 ```
 Frontend runs on http://localhost:5173
 
