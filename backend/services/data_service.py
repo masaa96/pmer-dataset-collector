@@ -37,20 +37,14 @@ async def get_composers_summary() -> Dict:
             unlabeled_counts[name] = doc["count"]
 
     # Composers explicitly surfaced via the "Add New Composer" flow (brand
-    # new composers, or existing composers picked from the dropdown that
-    # currently have no unlabeled compositions) still show up with a 0
-    # count, so users can immediately start adding compositions for them.
-    # This placeholder only applies while the composer truly has no
-    # compositions of their own yet - once they have at least one (labeled
-    # or unlabeled), the real composition counts above should decide
-    # whether/where they show up, so a stale flag can't keep a fully-labeled
-    # composer stuck on the unlabeled list with a 0 count.
-    labeled_names = {c["name"] for c in labeled}
+    # new composers, or existing composers - even fully-labeled ones -
+    # picked from the dropdown to start adding fresh unlabeled compositions
+    # for them) still show up with a 0 count. The flag is only ever cleared
+    # by label_unlabeled_composition() when a composer's last unlabeled
+    # composition gets labeled, so it can't get "stuck" showing a
+    # fully-labeled composer that hasn't been explicitly re-added.
     async for composer in db.composers.find({"show_when_empty": True}, {"name": 1}):
-        name = composer["name"]
-        if name in unlabeled_counts or name in labeled_names:
-            continue
-        unlabeled_counts[name] = 0
+        unlabeled_counts.setdefault(composer["name"], 0)
 
     labeled.sort(key=lambda c: c["name"])
     unlabeled = [{"name": name, "composition_count": count} for name, count in sorted(unlabeled_counts.items())]
