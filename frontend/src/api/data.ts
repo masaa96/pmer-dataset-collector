@@ -176,3 +176,21 @@ export const uploadSheetPdf = async (
   );
   return response.data;
 };
+
+/**
+ * Remove a composition's sheet music PDF (admin only). Clears both the
+ * stored GridFS file and the composition's linked fields.
+ */
+export const deleteSheetPdf = async (
+  composerName: string,
+  compositionName: string
+): Promise<{ success: boolean; message: string }> => {
+  const response = await api.post<{ success: boolean; message: string }>(
+    '/api/data/compositions/delete-sheet-pdf',
+    {
+      composer_name: composerName,
+      composition_name: compositionName,
+    }
+  );
+  return response.data;
+};

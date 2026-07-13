@@ -321,3 +321,30 @@ async def get_sheet_pdf(file_id: str):
     except Exception:
         raise ValueError("Sheet music PDF not found")
     return grid_out.filename or "sheet.pdf", data
+
+
+async def delete_sheet_pdf(composer_name: str, composition_name: str) -> Dict:
+    """Remove a composition's sheet music PDF from GridFS and clear the
+    linked fields on the composition document, so the UI never keeps
+    pointing at a file that no longer exists."""
+    db = get_db()
+    comp = await db.compositions.find_one({"composer_name": composer_name, "name": composition_name})
+    if not comp:
+        raise ValueError(f"Composition '{composition_name}' not found")
+    if not comp.get("sheet_pdf_id"):
+        raise ValueError("This composition has no sheet music PDF")
+
+    bucket = get_gridfs_bucket()
+    try:
+        await bucket.delete(comp["sheet_pdf_id"])
+    except Exception:
+        # The GridFS file may already be gone (e.g. removed directly in the
+        # database) - still clear the stale reference below so the UI stops
+        # pointing at a missing file.
+        pass
+
+    await db.compositions.update_one(
+        {"_id": comp["_id"]},
+        {"$set": {"sheet_pdf_id": None, "sheet_pdf_filename": None, "updated_at": datetime.utcnow()}},
+    )
+    return {"success": True, "message": "Sheet music PDF removed successfully"}

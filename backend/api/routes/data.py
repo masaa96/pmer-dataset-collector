@@ -18,6 +18,7 @@ from services.data_service import (
     add_existing_composer_to_unlabeled,
     upload_sheet_pdf,
     get_sheet_pdf,
+    delete_sheet_pdf,
 )
 from services.auth import verify_token, get_user_by_email
 
@@ -43,6 +44,11 @@ class AddYoutubeLinkRequest(BaseModel):
 
 class AddComposerToUnlabeledRequest(BaseModel):
     composer_name: str
+
+
+class DeleteSheetPdfRequest(BaseModel):
+    composer_name: str
+    composition_name: str
 
 
 class SubmitLabelsRequest(BaseModel):
@@ -189,6 +195,18 @@ async def download_sheet_pdf(file_id: str):
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/compositions/delete-sheet-pdf")
+async def delete_sheet_pdf_route(request: DeleteSheetPdfRequest, email: str = Depends(get_email)) -> Dict:
+    if email.strip().lower() not in settings.get_admin_emails():
+        raise HTTPException(status_code=403, detail="Only admins can remove sheet music PDFs")
+    try:
+        return await delete_sheet_pdf(request.composer_name.strip(), request.composition_name.strip())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

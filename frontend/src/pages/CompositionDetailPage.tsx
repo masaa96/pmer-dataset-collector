@@ -32,7 +32,7 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import YouTubeEmbed from '../components/YouTubeEmbed';
 import Navigation from '../components/Navigation';
-import { Composition, getAllEmotions, submitLabels, addYoutubeLink, uploadSheetPdf, getAllComposerCompositions } from '../api/data';
+import { Composition, getAllEmotions, submitLabels, addYoutubeLink, uploadSheetPdf, deleteSheetPdf, getAllComposerCompositions } from '../api/data';
 import { API_BASE_URL } from '../api/config';
 import { useProgress } from '../context/ProgressContext';
 import { useAuth } from '../context/AuthContext';
@@ -78,6 +78,7 @@ const CompositionDetailPage: React.FC = () => {
   const [currentSheetPdfId, setCurrentSheetPdfId] = useState(composition?.sheet_pdf_id || null);
   const [currentSheetPdfFilename, setCurrentSheetPdfFilename] = useState(composition?.sheet_pdf_filename || null);
   const [isUploadingSheetPdf, setIsUploadingSheetPdf] = useState(false);
+  const [isDeletingSheetPdf, setIsDeletingSheetPdf] = useState(false);
   const sheetPdfInputRef = useRef<HTMLInputElement>(null);
 
   // Original emotions from the composition (cannot be removed)
@@ -293,6 +294,34 @@ const CompositionDetailPage: React.FC = () => {
       setSnackbarOpen(true);
     } finally {
       setIsUploadingSheetPdf(false);
+    }
+  };
+
+  // Handle removing the current sheet music PDF (admin only)
+  const handleDeleteSheetPdf = async () => {
+    if (!composerName || !composition) {
+      return;
+    }
+
+    if (!window.confirm('Remove the sheet music PDF for this composition?')) {
+      return;
+    }
+
+    setIsDeletingSheetPdf(true);
+
+    try {
+      const result = await deleteSheetPdf(composerName, composition.name);
+      setCurrentSheetPdfId(null);
+      setCurrentSheetPdfFilename(null);
+      setSnackbarMessage(result.message || 'Sheet music PDF removed successfully!');
+      setSnackbarSeverity('success');
+      setSnackbarOpen(true);
+    } catch (error: any) {
+      setSnackbarMessage(error.response?.data?.detail || 'Failed to remove sheet music PDF');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+    } finally {
+      setIsDeletingSheetPdf(false);
     }
   };
 
@@ -618,24 +647,38 @@ const CompositionDetailPage: React.FC = () => {
         </Box>
 
         {currentSheetPdfId ? (
-          <Button
-            variant="contained"
-            component="a"
-            href={`${API_BASE_URL}/api/data/compositions/sheet-pdf/${currentSheetPdfId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            startIcon={<PictureAsPdfIcon />}
-            sx={{
-              fontWeight: 600,
-              textTransform: 'none',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              '&:hover': {
-                background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
-              },
-            }}
-          >
-            View / Download PDF
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+            <Button
+              variant="contained"
+              component="a"
+              href={`${API_BASE_URL}/api/data/compositions/sheet-pdf/${currentSheetPdfId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              startIcon={<PictureAsPdfIcon />}
+              sx={{
+                fontWeight: 600,
+                textTransform: 'none',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
+                },
+              }}
+            >
+              View / Download PDF
+            </Button>
+            {isAdmin && (
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<CloseIcon />}
+                onClick={handleDeleteSheetPdf}
+                disabled={isDeletingSheetPdf}
+                sx={{ fontWeight: 600, textTransform: 'none' }}
+              >
+                {isDeletingSheetPdf ? 'Removing...' : 'Remove PDF'}
+              </Button>
+            )}
+          </Box>
         ) : (
           <>
             <input
