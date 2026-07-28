@@ -83,7 +83,7 @@ const LoginPage: React.FC = () => {
             align="center"
             sx={{ mb: 4 }}
           >
-            Enter your email to get started
+            Enter email to get started - it doesn't need to be real or already registered, it can be random@example.com
           </Typography>
 
           {error && (

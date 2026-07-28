@@ -16,6 +16,17 @@ _YOUTUBE_URL_RE = re.compile(
 MAX_SHEET_PDF_SIZE_BYTES = 16 * 1024 * 1024  # 16 MB
 
 
+def _normalize_emotion(emotion: str) -> str:
+    """Capitalize only the first character of an emotion label, leaving the
+    rest of the string untouched (e.g. "loneliness" -> "Loneliness"), so
+    emotions are always displayed/stored consistently regardless of how a
+    user typed them in."""
+    emotion = emotion.strip()
+    if not emotion:
+        return emotion
+    return emotion[0].upper() + emotion[1:]
+
+
 async def get_composers_summary() -> Dict:
     db = get_db()
     labeled = []
@@ -105,8 +116,8 @@ async def get_all_emotions() -> List[str]:
     for emotion_list in [composition_emotions, label_emotions]:
         for emotion in emotion_list:
             if emotion and isinstance(emotion, str):
-                all_emotions.add(emotion.strip())
-    
+                all_emotions.add(_normalize_emotion(emotion))
+
     return sorted(list(all_emotions))
 
 
@@ -202,6 +213,8 @@ async def label_unlabeled_composition(composer_name: str, composition_name: str,
     if not emotions:
         raise ValueError("At least one emotion must be provided")
 
+    emotions = [_normalize_emotion(e) for e in emotions]
+
     comp = await db.compositions.find_one({"composer_name": composer_name, "name": composition_name})
     if not comp:
         raise ValueError(f"Composition '{composition_name}' not found")
@@ -237,6 +250,8 @@ async def add_emotions_to_composition(composer_name: str, composition_name: str,
     db = get_db()
     if not emotions:
         raise ValueError("At least one emotion must be provided")
+
+    emotions = [_normalize_emotion(e) for e in emotions]
 
     comp = await db.compositions.find_one({"composer_name": composer_name, "name": composition_name})
     if not comp:
